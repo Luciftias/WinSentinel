@@ -50,7 +50,9 @@
     </Style>
 
     <!-- ============================================================== Buttons -->
-    <Style x:Key="GhostButton" TargetType="Button">
+    <!-- Base style targets ButtonBase so both Button and ToggleButton styles can derive from it
+         (a Style can only be based on a style whose TargetType is the same or a base type). -->
+    <Style x:Key="GhostButtonBase" TargetType="ButtonBase">
         <Setter Property="Background" Value="{DynamicResource PanelAltBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
@@ -63,7 +65,7 @@
         <Setter Property="SnapsToDevicePixels" Value="True"/>
         <Setter Property="Template">
             <Setter.Value>
-                <ControlTemplate TargetType="Button">
+                <ControlTemplate TargetType="ButtonBase">
                     <Border x:Name="b" CornerRadius="7" Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -86,6 +88,10 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <Style x:Key="GhostButton" TargetType="Button" BasedOn="{StaticResource GhostButtonBase}"/>
+
+    <Style x:Key="GhostToggleButton" TargetType="ToggleButton" BasedOn="{StaticResource GhostButtonBase}"/>
 
     <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource GhostButton}">
         <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
