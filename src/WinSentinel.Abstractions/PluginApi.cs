@@ -55,6 +55,18 @@ public interface IPluginCommand
 
     /// <summary>Runs on the UI thread. Keep it short; use fire-and-forget for long work.</summary>
     void Execute(IPluginCommandContext context);
+
+    /// <summary>
+    /// When true, the host asks the user for a single text value (e.g. a host name) before
+    /// executing; the value arrives in <see cref="IPluginCommandContext.Parameter"/>.
+    /// </summary>
+    bool RequiresParameter => false;
+
+    /// <summary>Label for the parameter prompt, e.g. "Host or IP".</summary>
+    string ParameterLabel => "Value";
+
+    /// <summary>Prefilled value / hint for the parameter prompt.</summary>
+    string ParameterPlaceholder => string.Empty;
 }
 
 /// <summary>Context for command execution (what the user had selected when invoking it).</summary>
@@ -63,6 +75,9 @@ public interface IPluginCommandContext
     int? SelectedProcessId { get; }
 
     string? SelectedProcessName { get; }
+
+    /// <summary>User-supplied parameter when <see cref="IPluginCommand.RequiresParameter"/> is true.</summary>
+    string? Parameter => null;
 }
 
 /// <summary>Ready-made mutable implementation of <see cref="IPluginCommandContext"/>.</summary>
@@ -71,6 +86,8 @@ public sealed class PluginCommandContext : IPluginCommandContext
     public int? SelectedProcessId { get; init; }
 
     public string? SelectedProcessName { get; init; }
+
+    public string? Parameter { get; init; }
 
     /// <summary>Context with no process selection (used by the tray menu).</summary>
     public static PluginCommandContext Empty => new();

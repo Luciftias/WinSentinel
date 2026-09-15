@@ -162,7 +162,16 @@ public partial class App : Application
     private void ExecutePluginCommand(PluginHost.PluginCommandEntry entry)
     {
         if (_plugins is null) return;
-        bool ok = _plugins.TryExecuteCommand(entry, PluginCommandContext.Empty, out string message);
+
+        string? parameter = null;
+        if (entry.RequiresParameter)
+        {
+            parameter = CommandPrompt.RequestParameter(entry.Title, entry.ParameterLabel, entry.ParameterPlaceholder);
+            if (parameter is null) return; // cancelled
+        }
+
+        var context = new PluginCommandContext { Parameter = parameter };
+        bool ok = _plugins.TryExecuteCommand(entry, context, out string message);
         if (!ok) _tray?.ShowBalloon("Plugin command", message);
     }
 

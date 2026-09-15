@@ -49,6 +49,13 @@ public sealed class PluginHost : IDisposable
         public required string Description { get; init; }
         public required IPluginCommand Command { get; init; }
         public string Display => $"{Title} ({PluginName})";
+
+        /// <summary>True when the host must prompt the user for a parameter before executing.</summary>
+        public bool RequiresParameter => Command.RequiresParameter;
+
+        public string ParameterLabel => Command.ParameterLabel;
+
+        public string ParameterPlaceholder => Command.ParameterPlaceholder;
     }
 
     public sealed class LoadedPlugin

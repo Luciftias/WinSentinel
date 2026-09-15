@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- WinSentinel plugin: TCP connect port scanner (Nmap-style lite) for authorised hosts. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>WinSentinel.Plugin.PortScan</AssemblyName>
+    <RootNamespace>WinSentinel.Plugin.PortScan</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>WinSentinel</Authors>
+    <Description>TCP connect port scanner (common ports) with a text report. Defaults to 127.0.0.1; only scan systems you are authorised to test.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WinSentinel.Abstractions\WinSentinel.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

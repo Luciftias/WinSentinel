@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- WinSentinel plugin: local HTTP inspector / forward proxy (Burp-lite, no TLS interception). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>WinSentinel.Plugin.HttpInspector</AssemblyName>
+    <RootNamespace>WinSentinel.Plugin.HttpInspector</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>WinSentinel</Authors>
+    <Description>A loopback HTTP forward proxy that logs requests and tunnels HTTPS (CONNECT) without decrypting it.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WinSentinel.Abstractions\WinSentinel.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

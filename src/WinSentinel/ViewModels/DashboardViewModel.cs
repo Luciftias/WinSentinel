@@ -1169,11 +1169,23 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
 
     private void RunPluginCommand(PluginHost.PluginCommandEntry entry)
     {
+        string? parameter = null;
+        if (entry.RequiresParameter)
+        {
+            parameter = CommandPrompt.RequestParameter(entry.Title, entry.ParameterLabel, entry.ParameterPlaceholder);
+            if (parameter is null)
+            {
+                SetStatus($"'{entry.Title}' was cancelled.");
+                return;
+            }
+        }
+
         var selection = SelectedProcess;
         var context = new PluginCommandContext
         {
             SelectedProcessId = selection?.Pid,
-            SelectedProcessName = selection?.Name
+            SelectedProcessName = selection?.Name,
+            Parameter = parameter
         };
 
         bool ok = _plugins.TryExecuteCommand(entry, context, out string message);

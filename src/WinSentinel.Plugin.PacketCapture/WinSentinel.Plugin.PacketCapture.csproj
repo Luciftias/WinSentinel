@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- WinSentinel plugin: raw-socket packet capture with Wireshark-compatible pcap export. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>WinSentinel.Plugin.PacketCapture</AssemblyName>
+    <RootNamespace>WinSentinel.Plugin.PacketCapture</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>WinSentinel</Authors>
+    <Description>Packet capture on the local interface (needs administrator) with stats and .pcap export for Wireshark.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WinSentinel.Abstractions\WinSentinel.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

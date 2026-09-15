@@ -39,9 +39,9 @@ startup programs — wrapped in a themed WPF dashboard.
 > TCP, Efficiency Mode, suspend/resume, I/O + memory priorities, full startup management, themes,
 > a network explorer with per-process TCP attribution (TCP extended statistics), ACPI temperature
 > monitoring, a three-family anomaly engine (sustained thresholds, z-score spikes, runaway
-> processes) and an **in-process plugin system** (`WinSentinel.Abstractions`) — on **.NET 10 LTS**
-> (.NET 8 reached end of support 2026-11-10).
-> Everything below is verified against the source tree at v2.2.0.
+> processes) and an **in-process plugin system** with a security family (pcap capture · port scan ·
+> HTTP inspector), all on **.NET 10 LTS** (.NET 8 reached end of support 2026-11-10).
+> Everything below is verified against the source tree at v2.3.0.
 
 <details>
 <summary><strong>What's new in 2.0 — at a glance</strong> (click to expand)</summary>
@@ -68,6 +68,18 @@ startup programs — wrapped in a themed WPF dashboard.
 | **Temperature** | ACPI thermal zones via WMI (`Win32_PerfFormattedData_Counters_ThermalZoneInformation` first, `MSAcpi_ThermalZoneTemperature` as the admin fallback) — Overview card, °C alert threshold; machines exposing no zones degrade gracefully |
 | **Anomaly detection** | **AlertService v2**: sustained thresholds (CPU / RAM / temperature) + **statistical spikes** (z-score vs the rolling baseline, CPU / disk / network) + **runaway-process** detection; per-kind cooldowns, 100-entry in-app history, dedicated **Alerts** page, tray notifications |
 | **Dependency** | Exactly one NuGet package: Microsoft's `System.Management` (MIT) for the WMI sensors |
+
+</details>
+
+<details>
+<summary><strong>What's new in 2.3 — security plugin family</strong> (click to expand)</summary>
+
+| Plugin | What it does | Honest scope |
+|--------|--------------|--------------|
+| **Packet Capture (pcap)** | Raw-socket capture on the primary interface (admin), live stats (packets / pps / TCP / UDP / MB) and standard **.pcap export that opens in Wireshark** | DLT_RAW captures; on Wi-Fi Windows typically shows this machine's traffic only |
+| **Port Scanner (TCP)** | Concurrent TCP connect scan of 1048 common ports (1–1024 + service ports) with a text report; defaults to **127.0.0.1** | Connect scan only — no SYN stealth, OS fingerprinting or scripts; scan only systems you're authorised to test |
+| **HTTP Inspector** | Loopback forward proxy on **127.0.0.1:8878** (configurable): logs plain-HTTP requests (method · target · status · bytes) and tunnels HTTPS via CONNECT with byte counts | **No TLS interception, no root certificate** — HTTPS payload is never decrypted |
+| **Parameter prompts** | `IPluginCommand.RequiresParameter` lets the host ask for one value (e.g. scan target) with a themed dialog | Backwards compatible default interface members — existing plugins keep working |
 
 </details>
 
@@ -116,10 +128,11 @@ WinSentinel
 │                            processes. Rate-limited, read-only, tray-notified, logged
 │                            to an in-app history.
 ├── Plugins                  Drop plugin DLLs into %AppData%\WinSentinel\plugins.
-│                            Plugin metrics appear on the Overview, commands in the
-│                            tray "Plugins" menu and on the Settings page. Loaded
-│                            in-process (AssemblyLoadContext), error-isolated, with
-│                            best-effort reload. Contracts: WinSentinel.Abstractions.
+│                            Ships with four: Example · Packet Capture (pcap) ·
+│                            Port Scanner · HTTP Inspector. Metrics on the Overview,
+│                            commands in the tray "Plugins" menu and Settings.
+│                            In-process, error-isolated, best-effort reload.
+│                            Contracts: WinSentinel.Abstractions.
 └── Dashboard (sidebar nav)
     ├── Overview             4 live gauges (CPU/RAM/GPU + disk activity),
     │                        auto-scaling sparklines, network down/up graphs,
@@ -223,6 +236,23 @@ Engineering guarantees:
 > their source first. The sample plugin (`src/WinSentinel.Plugin.Example`) shows both extension
 > points in ~150 lines.
 
+### Security plugin family
+
+Three first-party plugins ship with the repository, all built for **authorised analysis of your own
+machine and network** (they are the same category of tool as Wireshark / nmap / Burp — scoped to
+what is honest and safe to embed):
+
+| Plugin | Controls | Output |
+|--------|----------|--------|
+| **Packet Capture (pcap)** | Start / Stop / Save / Clear | Overview metrics (captured packets, pps, TCP/UDP split, buffer MB) + `.pcap` files in `%AppData%\WinSentinel\plugins\diagnostics.packet-capture\captures\` — open them directly in Wireshark (LINKTYPE_RAW) |
+| **Port Scanner (TCP)** | "Scan host…" parameter prompt (default `127.0.0.1`), "Open last scan report" | Live "Open ports" metric + text report (`last-scan.txt`) listing port numbers, common service names and timings |
+| **HTTP Inspector** | "Start proxy" / "Stop proxy" / "Open request log" | Request log (`requests.log`, 5 MB rolling) with method, URL, status and byte counts; metrics for requests, active tunnels, logged MB and port |
+
+Engineering notes: the proxy binds to **loopback only** and forwards with `ConfigureAwait(false)`
+(no UI-thread coupling under load); the scanner runs 100 probes concurrently with a 250 ms timeout
+and never touches a target until you confirm one in the prompt; the capture buffer is a bounded ring
+(200 k packets / 256 MB) so memory can't run away.
+
 ### Experience
 
 - Floating balloon: always-on-top, frameless, translucent, **draggable with remembered position**
@@ -278,6 +308,10 @@ Engineering guarantees:
 | Adapter stats | Network page | `GetIfTable` + registry/WMI friendly-name resolution |
 | Plugin metrics | Overview card | Third-party DLLs through `PluginHost` (collectible ALC) |
 | Plugin commands | Tray "Plugins" menu + Settings | `IPluginCommand` with error isolation |
+| Plugin parameter prompts | Modal dialog before execution | `IPluginCommand.RequiresParameter` + context |
+| Packet capture (pcap) | Overview metrics + `.pcap` export | Raw socket `SIO_RCVALL`, DLT_RAW writer |
+| Port scan | Overview metric + text report | Concurrent `TcpClient` connect scan |
+| HTTP inspector | Overview metrics + request log | Loopback forward proxy (CONNECT tunneling) |
 | Themes / accents | Settings tab | Runtime dictionary swap + DWM registry |
 
 ---
@@ -607,6 +641,9 @@ gitGraph
 | Efficiency Mode | Windows 10 / 11 | On Win10 the state is *set-only* (see [How it works](#how-it-works)) |
 | Standby purge | Administrator | `SeProfileSingleProcessPrivilege` |
 | Per-process TCP (NET column) | Administrator | TCP EStats collection can only be enabled by an elevated process — same constraint as Process Explorer; UDP is not attributed per process |
+| Packet capture plugin | Administrator + active adapter | Raw socket `SIO_RCVALL`; on Wi-Fi, Windows typically exposes only this machine's traffic |
+| Port scanner plugin | — | TCP connect scan of common ports; defaults to 127.0.0.1 — only scan systems you are authorised to test |
+| HTTP inspector plugin | A free loopback port (default 8878) | Plain HTTP logged; HTTPS tunnelled, never decrypted; port configurable via the plugin's `settings.json` |
 | Temperature | ACPI thermal zones exposed by the firmware | Many VMs/mainboards expose none — the card and the temp alert stay hidden (verify with `Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation`) |
 | Architecture | x64 / AnyCPU | Both solution platforms supported |
 
@@ -623,8 +660,11 @@ WinSentinel/
 └── src/
     ├── WinSentinel.Abstractions/    Plugin contracts (net10.0) — reference to build plugins
     ├── WinSentinel.Plugin.Example/  Sample plugin: metrics + commands, ~150 lines
+    ├── WinSentinel.Plugin.PacketCapture/  Raw-socket capture → .pcap export (admin)
+    ├── WinSentinel.Plugin.PortScan/       TCP connect scanner → text report
+    ├── WinSentinel.Plugin.HttpInspector/  Loopback HTTP proxy → request log
     └── WinSentinel/
-        ├── WinSentinel.csproj           net10.0-windows · WinExe · v2.2.0
+        ├── WinSentinel.csproj           net10.0-windows · WinExe · v2.3.0
         ├── app.manifest                 requireAdministrator + PerMonitorV2 DPI + longPathAware
         ├── App.xaml / App.xaml.cs       Bootstrap: settings → theme → services → tray/balloon
         ├── Assets/                      app.ico · tray.ico · logo.png
@@ -880,6 +920,9 @@ via the UI thread only (NotifyIcon is not thread-safe).
 - Destructive actions require explicit confirmation by default (both configurable in Settings).
 - Plugins run in-process with the same administrator privileges — load, sample and command failures
   are isolated and surfaced, but plugin code itself is trusted code: only install what you trust.
+- Network-analysis plugins are built for authorised use: the port scanner defaults to 127.0.0.1 and
+  carries the authorisation note in its prompt; capture only sees what this adapter can see; the
+  HTTP inspector binds to loopback and never decrypts TLS (no root certificate is installed).
 - Every failure path lands in a log rather than a crash.
 
 This is a defensive, user-facing utility for monitoring and tuning **your own machine**.
@@ -931,6 +974,9 @@ invalid state.
 | Alerts feel noisy or silent | Spike sensitivity / cooldown tuning | Alerts page → sensitivity (σ), cooldown and thresholds are all adjustable live |
 | Plugin status shows Failed | Bad image, incompatible contract, or locked file | Hover the status chip for the error; check the log; the host keeps running |
 | Plugin loaded but no metrics | Plugin registered none (or `IsAvailable` is false) | Re-read the plugin's contract usage; Reload from Settings → Plugins |
+| Capture plugin: "access forbidden" | Not elevated | Run WinSentinel as administrator — raw sockets require it |
+| Proxy plugin won't start | Port already in use | Set another `port` in `%AppData%\WinSentinel\plugins\security.http-inspector\settings.json`, then Reload |
+| Port scan finds nothing | Firewall or no listeners | Expected on most hardened hosts; start with 127.0.0.1 to see your own services |
 | "WinSentinel is already running" at launch | Single-instance mutex | Check the system tray |
 | Balloon disappeared after a monitor change | Position clamped into current virtual screen | Tray → Show Floating Balloon, or Settings → Reset position |
 | App crashed once and recovered | Crash handler logged it | Read `%AppData%\WinSentinel\winsentinel.log` |
@@ -978,5 +1024,5 @@ relying on it in production.
 ---
 
 <div align="center">
-<sub>WinSentinel 2.2 · C# / .NET 10 / WPF · MVVM · one Microsoft package (`System.Management`) · plugin system · verified on Windows 10 22H2</sub>
+<sub>WinSentinel 2.3 · C# / .NET 10 / WPF · MVVM · one Microsoft package (`System.Management`) · plugin system + security family · verified on Windows 10 22H2</sub>
 </div>
