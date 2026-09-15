@@ -3,15 +3,19 @@ using System.Diagnostics;
 namespace WinSentinel.Services;
 
 /// <summary>
-/// Working-set trimming via <c>EmptyWorkingSet</c>. This does NOT free or "clean" RAM in
-/// any permanent sense — it asks Windows to page a process's resident pages out so the
-/// "in use" figure drops; the OS pages them back in on demand. It is genuinely useful for
-/// measurement and tuning, and for reclaiming bloated working sets after heavy workloads,
-/// but it is not a magic accelerator. WinSentinel surfaces it honestly.
+/// Memory tuning that is honest about what it does:
+///  • <see cref="TrimAll"/> asks Windows to page out working sets (EmptyWorkingSet). Useful
+///    after heavy workloads; the OS pages memory back in on demand — a tuning aid, not a
+///    permanent accelerator.
+///  • <see cref="PurgeStandby"/> clears the standby (cached) list system-wide. Requires
+///    administrator rights (SeProfileSingleProcessPrivilege). It is safe but counter-productive
+///    if used often: Windows immediately refills the cache from disk, causing a brief I/O spike.
 /// </summary>
 public sealed class MemoryOptimizer
 {
     public readonly record struct TrimResult(int Trimmed, int Skipped, double FreedMB);
+
+    public readonly record struct Result(bool Ok, string Message);
 
     /// <summary>Trim a single process by PID. Returns false on access-denied/exited.</summary>
     public bool TrimProcess(int pid)
@@ -72,5 +76,28 @@ public sealed class MemoryOptimizer
 
         double freedMB = Math.Max(0, beforeBytes - afterBytes) / (1024.0 * 1024.0);
         return new TrimResult(trimmed, skipped, freedMB);
+    }
+
+    /// <summary>
+    /// System-wide standby-list purge via NtSetSystemInformation(SystemMemoryListInformation,
+    /// MemoryPurgeStandbyList). Administrator only. Presented in the UI as an advanced action
+    /// with its real trade-off (cache is rebuilt from disk afterwards).
+    /// </summary>
+    public Result PurgeStandby()
+    {
+        try
+        {
+            int command = NativeMethods.MemoryPurgeStandbyList;
+            int status = NativeMethods.NtSetSystemInformation(
+                NativeMethods.SystemMemoryListInformation, ref command, sizeof(int));
+
+            return status == 0
+                ? new Result(true, "Standby list purged. Cache rebuilds on demand — expect a brief disk-I/O spike.")
+                : new Result(false, $"Standby purge failed (NTSTATUS 0x{status:X8}). It requires administrator rights.");
+        }
+        catch (Exception ex)
+        {
+            return new Result(false, $"Standby purge failed: {ex.Message}");
+        }
     }
 }

@@ -1,218 +1,865 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Threading;
+using WinSentinel.Helpers;
 using WinSentinel.Models;
 using WinSentinel.Services;
 
 namespace WinSentinel.ViewModels;
 
 /// <summary>
-/// View model for the main dashboard: live gauges + history sparklines, the process table
-/// (kill / priority / affinity / trim) and the startup-program manager. All destructive
-/// operations route through services that enforce the protected-process guard rail; the UI
-/// additionally asks for confirmation.
+/// View model for the dashboard: live gauges (CPU/RAM/GPU/disk/network/battery), the
+/// auto-refreshing process table with per-process actions, the startup manager and the
+/// settings surface. All destructive operations route through services that enforce the
+/// protected-process guard rail; the UI additionally asks for confirmation.
 /// </summary>
-public sealed class DashboardViewModel : ViewModelBase
+public sealed class DashboardViewModel : ViewModelBase, IDisposable
 {
     private readonly SystemMonitorService _monitor;
-    private readonly MemoryOptimizer _memory = new();
-    private readonly ProcessService _processes = new();
-    private readonly StartupManager _startup = new();
+    private readonly ProcessService _processes;
+    private readonly MemoryOptimizer _memory;
+    private readonly StartupManager _startup;
+    private readonly SettingsService _settings;
+    private readonly ThemeManager _theme;
+    private readonly AlertService _alerts;
     private readonly Dispatcher _dispatcher;
+    private readonly DispatcherTimer _refreshTimer;
 
-    public int HistoryLength => 60;
-    public int LogicalProcessors => Environment.ProcessorCount;
+    private bool _refreshBusy;
+    private bool _disposed;
+
+    public DashboardViewModel(
+        SystemMonitorService monitor,
+        ProcessService processes,
+        MemoryOptimizer memory,
+        StartupManager startup,
+        SettingsService settings,
+        ThemeManager theme,
+        AlertService alerts)
+    {
+        _monitor = monitor;
+        _processes = processes;
+        _memory = memory;
+        _startup = startup;
+        _settings = settings;
+        _theme = theme;
+        _alerts = alerts;
+        _dispatcher = Dispatcher.CurrentDispatcher;
+
+        HistoryLength = Math.Clamp(settings.Current.HistorySeconds, 30, 300);
+
+        // Filtered, sorted view over the process rows --------------------------------
+        ProcessesView = CollectionViewSource.GetDefaultView(Processes);
+        ProcessesView.Filter = o => o is ProcessRow row && row.Matches(_searchText);
+        ProcessesView.SortDescriptions.Add(new SortDescription(nameof(ProcessRow.MemoryMB), ListSortDirection.Descending));
+
+        // Seed histories so the sparklines draw a full-width baseline right away.
+        for (int i = 0; i < HistoryLength; i++)
+        {
+            CpuHistory.Add(0);
+            RamHistory.Add(0);
+            GpuHistory.Add(0);
+            DiskHistory.Add(0);
+            NetDownHistory.Add(0);
+            NetUpHistory.Add(0);
+        }
+
+        _monitor.SampleUpdated += OnSample;
+
+        // Commands -------------------------------------------------------------------
+        RefreshProcessesCommand = new RelayCommand(_ => _ = RefreshProcessesAsync());
+        TrimAllCommand = new RelayCommand(_ => _ = TrimAllAsync());
+        PurgeStandbyCommand = new RelayCommand(_ => _ = PurgeStandbyAsync());
+        TrimSelectedCommand = new RelayCommand(_ => TrimSelected(), _ => SelectedProcess is not null);
+        KillSelectedCommand = new RelayCommand(_ => KillSelected(entireTree: false), _ => SelectedProcess is not null);
+        KillTreeSelectedCommand = new RelayCommand(_ => KillSelected(entireTree: true), _ => SelectedProcess is not null);
+        SuspendResumeSelectedCommand = new RelayCommand(_ => SuspendResumeSelected(), _ => SelectedProcess is not null);
+        ToggleEcoSelectedCommand = new RelayCommand(_ => ToggleEcoSelected(), _ => SelectedProcess is not null);
+        ApplyPriorityCommand = new RelayCommand(_ => ApplySelectedPriority(), _ => SelectedProcess is not null);
+        ApplyIoPriorityCommand = new RelayCommand(_ => ApplySelectedIoPriority(), _ => SelectedProcess is not null);
+        ApplyMemoryPriorityCommand = new RelayCommand(_ => ApplySelectedMemoryPriority(), _ => SelectedProcess is not null);
+        OpenFileLocationCommand = new RelayCommand(_ => OpenFileLocation(), _ => SelectedProcess?.Path is not null);
+        CopyDetailsCommand = new RelayCommand(_ => CopyDetails(), _ => SelectedProcess is not null);
+        RefreshStartupCommand = new RelayCommand(_ => RefreshStartup());
+        RemoveStartupCommand = new RelayCommand(_ => RemoveStartup(), _ => SelectedStartup?.CanRemove == true);
+        ToggleStartupCommand = new RelayCommand(_ => ToggleStartup(), _ => SelectedStartup?.CanToggle == true);
+        ResetBalloonPositionCommand = new RelayCommand(_ => ResetBalloonPosition());
+        TestAlertCommand = new RelayCommand(_ => _alerts.RaiseTest());
+        ResetSettingsCommand = new RelayCommand(_ => ResetSettings());
+
+        // Process auto-refresh timer -------------------------------------------------
+        _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(SelectedRefreshSeconds) };
+        _refreshTimer.Tick += (_, _) =>
+        {
+            if (AutoRefresh && !Paused) _ = RefreshProcessesAsync();
+        };
+        _refreshTimer.Start();
+
+        if (_monitor.Latest is not null) Apply(_monitor.Latest);
+        _ = RefreshProcessesAsync();
+        RefreshStartup();
+        SetStatus("Monitoring system…");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════ Header
+
+    public string MachineName => Environment.MachineName;
+
+    public string VersionText => $"WinSentinel {typeof(DashboardViewModel).Assembly.GetName().Version?.ToString(3) ?? "2.0.0"}";
+
+    private string _uptime = "—";
+    public string Uptime { get => _uptime; private set => SetField(ref _uptime, value); }
+
+    private int _processCount;
+    public int ProcessCount { get => _processCount; private set => SetField(ref _processCount, value); }
+
+    private int _threadCount;
+    public int ThreadCount { get => _threadCount; private set => SetField(ref _threadCount, value); }
+
+    private string _status = string.Empty;
+    public string Status { get => _status; private set => SetField(ref _status, value); }
+
+    private int _selectedTabIndex;
+    public int SelectedTabIndex { get => _selectedTabIndex; set => SetField(ref _selectedTabIndex, value); }
+
+    /// <summary>Navigates the dashboard to the Settings page (used by tray "Settings…").</summary>
+    public void ShowSettings() => SelectedTabIndex = 3;
+
+    // ═══════════════════════════════════════════════════════════════════ Live metrics
+
+    public int HistoryLength { get; }
+    public int LogicalProcessors { get; } = Environment.ProcessorCount;
 
     public ObservableCollection<double> CpuHistory { get; } = new();
     public ObservableCollection<double> RamHistory { get; } = new();
-    public ObservableCollection<ProcessInfo> Processes { get; } = new();
-    public ObservableCollection<StartupItem> StartupItems { get; } = new();
+    public ObservableCollection<double> GpuHistory { get; } = new();
+    public ObservableCollection<double> DiskHistory { get; } = new();
+    public ObservableCollection<double> NetDownHistory { get; } = new();
+    public ObservableCollection<double> NetUpHistory { get; } = new();
 
     private double _cpu;
     public double Cpu { get => _cpu; private set { if (SetField(ref _cpu, value)) OnPropertyChanged(nameof(CpuText)); } }
+    public string CpuText => $"{Cpu:0}%";
 
     private double _ram;
     public double Ram { get => _ram; private set { if (SetField(ref _ram, value)) OnPropertyChanged(nameof(RamText)); } }
-
-    public string CpuText => $"{Cpu:0}%";
     public string RamText => $"{Ram:0}%";
+
+    private double _gpu;
+    public double Gpu { get => _gpu; private set { if (SetField(ref _gpu, value)) OnPropertyChanged(nameof(GpuText)); } }
+    public string GpuText => $"{Gpu:0}%";
+
+    private bool _gpuAvailable;
+    public bool GpuAvailable { get => _gpuAvailable; private set => SetField(ref _gpuAvailable, value); }
+
+    private bool _diskAvailable;
+    public bool DiskAvailable { get => _diskAvailable; private set => SetField(ref _diskAvailable, value); }
+
+    private string _cpuDetail = "—";
+    public string CpuDetail { get => _cpuDetail; private set => SetField(ref _cpuDetail, value); }
 
     private string _ramDetail = "—";
     public string RamDetail { get => _ramDetail; private set => SetField(ref _ramDetail, value); }
 
-    private string _status = "Monitoring system…";
-    public string Status { get => _status; set => SetField(ref _status, value); }
+    private string _diskDetail = "—";
+    public string DiskDetail { get => _diskDetail; private set => SetField(ref _diskDetail, value); }
 
-    private ProcessInfo? _selectedProcess;
-    public ProcessInfo? SelectedProcess { get => _selectedProcess; set => SetField(ref _selectedProcess, value); }
+    private string _netDetail = "—";
+    public string NetDetail { get => _netDetail; private set => SetField(ref _netDetail, value); }
+
+    private bool _batteryPresent;
+    public bool BatteryPresent { get => _batteryPresent; private set => SetField(ref _batteryPresent, value); }
+
+    private string _batteryDetail = string.Empty;
+    public string BatteryDetail { get => _batteryDetail; private set => SetField(ref _batteryDetail, value); }
+
+    private double _diskMax = 10;
+    public double DiskMax { get => _diskMax; private set => SetField(ref _diskMax, value); }
+
+    private double _netMax = 5;
+    public double NetMax { get => _netMax; private set => SetField(ref _netMax, value); }
+
+    // ═══════════════════════════════════════════════════════════════════ Processes
+
+    public ObservableCollection<ProcessRow> Processes { get; } = new();
+    public ICollectionView ProcessesView { get; }
+
+    private string _searchText = string.Empty;
+    public string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            if (SetField(ref _searchText, value))
+                ProcessesView.Refresh();
+        }
+    }
+
+    private ProcessRow? _selectedProcess;
+    public ProcessRow? SelectedProcess { get => _selectedProcess; set => SetField(ref _selectedProcess, value); }
+
+    public int[] RefreshSecondsOptions { get; } = { 1, 2, 5, 10 };
+
+    public int SelectedRefreshSeconds
+    {
+        get => Math.Max(1, _settings.Current.ProcessRefreshMs / 1000);
+        set
+        {
+            int ms = Math.Clamp(value, 1, 30) * 1000;
+            if (ms == _settings.Current.ProcessRefreshMs) return;
+            _settings.Update(s => s.ProcessRefreshMs = ms);
+            _refreshTimer.Interval = TimeSpan.FromSeconds(value);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool AutoRefresh
+    {
+        get => _settings.Current.AutoRefreshProcesses;
+        set
+        {
+            if (value == _settings.Current.AutoRefreshProcesses) return;
+            _settings.Update(s => s.AutoRefreshProcesses = value);
+            OnPropertyChanged();
+        }
+    }
+
+    private bool _paused;
+    public bool Paused { get => _paused; set => SetField(ref _paused, value); }
+
+    public static string[] PriorityOptions { get; } =
+        { "Idle", "BelowNormal", "Normal", "AboveNormal", "High", "RealTime" };
+
+    public static string[] IoPriorityOptions { get; } = { "Very low", "Low", "Normal" };
+
+    public static string[] MemoryPriorityOptions { get; } = { "Very low", "Low", "Medium", "Below normal", "Normal" };
+
+    private string _selectedPriority = "Normal";
+    public string SelectedPriority { get => _selectedPriority; set => SetField(ref _selectedPriority, value); }
+
+    private string _selectedIoPriority = "Normal";
+    public string SelectedIoPriority { get => _selectedIoPriority; set => SetField(ref _selectedIoPriority, value); }
+
+    private string _selectedMemoryPriority = "Normal";
+    public string SelectedMemoryPriority { get => _selectedMemoryPriority; set => SetField(ref _selectedMemoryPriority, value); }
+
+    // ═══════════════════════════════════════════════════════════════════ Startup
+
+    public ObservableCollection<StartupItem> StartupItems { get; } = new();
 
     private StartupItem? _selectedStartup;
     public StartupItem? SelectedStartup { get => _selectedStartup; set => SetField(ref _selectedStartup, value); }
 
-    public RelayCommand TrimAllCommand { get; }
-    public RelayCommand TrimSelectedCommand { get; }
-    public RelayCommand RefreshProcessesCommand { get; }
-    public RelayCommand KillSelectedCommand { get; }
-    public RelayCommand RefreshStartupCommand { get; }
-    public RelayCommand RemoveStartupCommand { get; }
+    // ═══════════════════════════════════════════════════════════════════ Settings surface
 
-    public DashboardViewModel(SystemMonitorService monitor)
+    public static string[] ThemeOptions => ThemeManager.ThemeOptions;
+    public static string[] AccentOptions => ThemeManager.AccentOptions;
+    public static int[] SampleIntervalOptions { get; } = { 500, 1000, 2000 };
+
+    public string ThemeChoice
     {
-        _monitor = monitor;
-        _dispatcher = Dispatcher.CurrentDispatcher;
-
-        for (int i = 0; i < HistoryLength; i++) { CpuHistory.Add(0); RamHistory.Add(0); }
-
-        _monitor.SampleUpdated += OnSample;
-
-        TrimAllCommand          = new RelayCommand(_ => TrimAll());
-        TrimSelectedCommand     = new RelayCommand(_ => TrimSelected(), _ => SelectedProcess is not null);
-        RefreshProcessesCommand = new RelayCommand(_ => RefreshProcesses());
-        KillSelectedCommand     = new RelayCommand(_ => KillSelected(), _ => SelectedProcess is not null);
-        RefreshStartupCommand   = new RelayCommand(_ => RefreshStartup());
-        RemoveStartupCommand    = new RelayCommand(_ => RemoveStartup(), _ => SelectedStartup?.Removable == true);
-
-        RefreshProcesses();
-        RefreshStartup();
-        if (_monitor.Latest is not null) Apply(_monitor.Latest);
+        get => _settings.Current.Theme;
+        set
+        {
+            if (value == _settings.Current.Theme) return;
+            _settings.Update(s => s.Theme = value);
+            OnPropertyChanged();
+        }
     }
 
-    // ---- Live sampling -----------------------------------------------------
-
-    private void OnSample(object? sender, MetricSample sample)
+    public string AccentChoice
     {
-        if (!_dispatcher.CheckAccess()) { _dispatcher.BeginInvoke(() => Apply(sample)); return; }
-        Apply(sample);
+        get => _settings.Current.Accent;
+        set
+        {
+            if (value == _settings.Current.Accent) return;
+            _settings.Update(s => s.Accent = value);
+            OnPropertyChanged();
+        }
+    }
+
+    public int SelectedSampleIntervalMs
+    {
+        get => _settings.Current.SampleIntervalMs;
+        set
+        {
+            int v = Math.Clamp(value, 500, 2000);
+            if (v == _settings.Current.SampleIntervalMs) return;
+            _settings.Update(s => s.SampleIntervalMs = v);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool ConfirmKill
+    {
+        get => _settings.Current.ConfirmKill;
+        set
+        {
+            if (value == _settings.Current.ConfirmKill) return;
+            _settings.Update(s => s.ConfirmKill = value);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool ConfirmStartup
+    {
+        get => _settings.Current.ConfirmStartup;
+        set
+        {
+            if (value == _settings.Current.ConfirmStartup) return;
+            _settings.Update(s => s.ConfirmStartup = value);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool BalloonVisible
+    {
+        get => _settings.Current.BalloonVisible;
+        set
+        {
+            if (value == _settings.Current.BalloonVisible) return;
+            _settings.Update(s => s.BalloonVisible = value);
+            OnPropertyChanged();
+        }
+    }
+
+    public double BalloonOpacity
+    {
+        get => _settings.Current.BalloonOpacity;
+        set
+        {
+            double v = Math.Round(Math.Clamp(value, 0.3, 1.0), 2);
+            if (Math.Abs(v - _settings.Current.BalloonOpacity) < 0.001) return;
+            _settings.Update(s => s.BalloonOpacity = v);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool BalloonShowGpu
+    {
+        get => _settings.Current.BalloonShowGpu;
+        set
+        {
+            if (value == _settings.Current.BalloonShowGpu) return;
+            _settings.Update(s => s.BalloonShowGpu = value);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool BalloonShowDisk
+    {
+        get => _settings.Current.BalloonShowDisk;
+        set
+        {
+            if (value == _settings.Current.BalloonShowDisk) return;
+            _settings.Update(s => s.BalloonShowDisk = value);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool BalloonShowNet
+    {
+        get => _settings.Current.BalloonShowNet;
+        set
+        {
+            if (value == _settings.Current.BalloonShowNet) return;
+            _settings.Update(s => s.BalloonShowNet = value);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool AlertsEnabled
+    {
+        get => _settings.Current.AlertsEnabled;
+        set
+        {
+            if (value == _settings.Current.AlertsEnabled) return;
+            _settings.Update(s => s.AlertsEnabled = value);
+            OnPropertyChanged();
+        }
+    }
+
+    public double AlertCpuPercent
+    {
+        get => _settings.Current.AlertCpuPercent;
+        set
+        {
+            int v = (int)Math.Round(value);
+            if (v == _settings.Current.AlertCpuPercent) return;
+            _settings.Update(s => s.AlertCpuPercent = v);
+            OnPropertyChanged();
+        }
+    }
+
+    public double AlertRamPercent
+    {
+        get => _settings.Current.AlertRamPercent;
+        set
+        {
+            int v = (int)Math.Round(value);
+            if (v == _settings.Current.AlertRamPercent) return;
+            _settings.Update(s => s.AlertRamPercent = v);
+            OnPropertyChanged();
+        }
+    }
+
+    public double AlertSustainSeconds
+    {
+        get => _settings.Current.AlertSustainSeconds;
+        set
+        {
+            int v = (int)Math.Round(value);
+            if (v == _settings.Current.AlertSustainSeconds) return;
+            _settings.Update(s => s.AlertSustainSeconds = v);
+            OnPropertyChanged();
+        }
+    }
+
+    public double AlertCooldownMinutes
+    {
+        get => _settings.Current.AlertCooldownMinutes;
+        set
+        {
+            int v = (int)Math.Round(value);
+            if (v == _settings.Current.AlertCooldownMinutes) return;
+            _settings.Update(s => s.AlertCooldownMinutes = v);
+            OnPropertyChanged();
+        }
+    }
+
+    public string SettingsPath => _settings.SettingsPath;
+
+    // ═══════════════════════════════════════════════════════════════════ Commands
+
+    public RelayCommand RefreshProcessesCommand { get; }
+    public RelayCommand TrimAllCommand { get; }
+    public RelayCommand PurgeStandbyCommand { get; }
+    public RelayCommand TrimSelectedCommand { get; }
+    public RelayCommand KillSelectedCommand { get; }
+    public RelayCommand KillTreeSelectedCommand { get; }
+    public RelayCommand SuspendResumeSelectedCommand { get; }
+    public RelayCommand ToggleEcoSelectedCommand { get; }
+    public RelayCommand ApplyPriorityCommand { get; }
+    public RelayCommand ApplyIoPriorityCommand { get; }
+    public RelayCommand ApplyMemoryPriorityCommand { get; }
+    public RelayCommand OpenFileLocationCommand { get; }
+    public RelayCommand CopyDetailsCommand { get; }
+    public RelayCommand RefreshStartupCommand { get; }
+    public RelayCommand RemoveStartupCommand { get; }
+    public RelayCommand ToggleStartupCommand { get; }
+    public RelayCommand ResetBalloonPositionCommand { get; }
+    public RelayCommand TestAlertCommand { get; }
+    public RelayCommand ResetSettingsCommand { get; }
+
+    // ═══════════════════════════════════════════════════════════════════ Sampling
+
+    private void OnSample(object? sender, MetricSample s)
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _dispatcher.BeginInvoke(() => Apply(s));
+            return;
+        }
+        Apply(s);
     }
 
     private void Apply(MetricSample s)
     {
         Cpu = s.CpuPercent;
         Ram = s.RamPercent;
-        RamDetail = $"{s.RamUsedMB / 1024.0:0.0} GB / {s.RamTotalMB / 1024.0:0.0} GB  •  {s.RamAvailableMB / 1024.0:0.0} GB free";
-        Push(CpuHistory, s.CpuPercent);
-        Push(RamHistory, s.RamPercent);
+        Gpu = s.GpuPercent;
+        GpuAvailable = s.GpuAvailable;
+        DiskAvailable = s.DiskAvailable;
+
+        CpuDetail = s.CpuMhz > 0
+            ? $"{s.CpuMhz:0} MHz average • {LogicalProcessors} logical processors"
+            : $"{LogicalProcessors} logical processors";
+
+        RamDetail = $"{s.RamUsedMB / 1024.0:0.0} GB of {s.RamTotalMB / 1024.0:0.0} GB  •  {s.RamAvailableMB / 1024.0:0.0} GB free";
+
+        if (s.DiskAvailable)
+            DiskDetail = $"Read {ProcessRow.FormatRate(s.DiskReadBps)}  •  Write {ProcessRow.FormatRate(s.DiskWriteBps)}";
+
+        NetDetail = $"Down {ProcessRow.FormatRate(s.NetDownBps)}  •  Up {ProcessRow.FormatRate(s.NetUpBps)}";
+
+        BatteryPresent = s.BatteryPresent;
+        if (s.BatteryPresent)
+        {
+            string state = s.OnAcPower ? "AC power" : "On battery";
+            BatteryDetail = s.BatteryPercent >= 0 ? $"{s.BatteryPercent}%  •  {state}" : state;
+        }
+
+        Uptime = FormatUptime();
+
+        Push(CpuHistory, s.CpuPercent, 100);
+        Push(RamHistory, s.RamPercent, 100);
+        Push(GpuHistory, s.GpuAvailable ? s.GpuPercent : 0, 100);
+
+        const double MB = 1024.0 * 1024.0;
+        double diskMBs = (s.DiskReadBps + s.DiskWriteBps) / MB;
+        double downMBs = s.NetDownBps / MB;
+        double upMBs = s.NetUpBps / MB;
+        Push(DiskHistory, diskMBs, ref _diskMax, 10);
+        Push(NetDownHistory, downMBs, ref _netMax, 5);
+        Push(NetUpHistory, upMBs, ref _netMax, 5, updateMax: false);
     }
 
-    private void Push(ObservableCollection<double> series, double value)
+    private void Push(ObservableCollection<double> series, double value, double ceiling)
     {
-        series.Add(value);
+        series.Add(Math.Clamp(value, 0, ceiling));
         while (series.Count > HistoryLength) series.RemoveAt(0);
     }
 
-    // ---- Memory ------------------------------------------------------------
-
-    private void TrimAll()
+    /// <summary>Pushes a rate value and auto-scales the sparkline ceiling to keep it visible.</summary>
+    private void Push(ObservableCollection<double> series, double value, ref double maxField, double minimum, bool updateMax = true)
     {
-        Status = "Trimming working sets…";
-        var r = _memory.TrimAll();
-        Status = $"Trimmed {r.Trimmed} processes • ~{r.FreedMB:0} MB reclaimed • {r.Skipped} skipped.";
-        RefreshProcesses();
+        series.Add(Math.Max(0, value));
+        while (series.Count > HistoryLength) series.RemoveAt(0);
+
+        if (!updateMax) return;
+        double peak = minimum;
+        foreach (var v in series) if (v > peak) peak = v;
+        double scaled = Math.Max(minimum, peak * 1.2);
+        if (Math.Abs(scaled - maxField) > 0.01)
+        {
+            maxField = scaled;
+            OnPropertyChanged(series == DiskHistory ? nameof(DiskMax) : nameof(NetMax));
+        }
     }
+
+    private static string FormatUptime()
+    {
+        var ts = TimeSpan.FromMilliseconds(Environment.TickCount64);
+        if (ts.TotalDays >= 1) return $"{(int)ts.TotalDays}d {ts.Hours}h {ts.Minutes}m";
+        if (ts.TotalHours >= 1) return $"{ts.Hours}h {ts.Minutes}m";
+        return $"{ts.Minutes}m";
+    }
+
+    private void SetStatus(string message)
+        => Status = $"{DateTime.Now:HH:mm:ss}   {message}";
+
+    // ═══════════════════════════════════════════════════════════════════ Process refresh
+
+    private async Task RefreshProcessesAsync()
+    {
+        if (_refreshBusy || _disposed) return;
+        _refreshBusy = true;
+        try
+        {
+            var snapshot = await Task.Run(() => _processes.Snapshot());
+            if (_disposed) return;
+            MergeSnapshot(snapshot);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Process refresh", ex);
+        }
+        finally
+        {
+            _refreshBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Merges a snapshot into the existing rows (diff by PID) so selection, sorting and scroll
+    /// position survive refreshes; dead PIDs are removed, new PIDs appended.
+    /// </summary>
+    private void MergeSnapshot(List<ProcessInfo> snapshot)
+    {
+        var byPid = new Dictionary<int, ProcessInfo>(snapshot.Count);
+        foreach (var info in snapshot) byPid[info.Pid] = info;
+
+        for (int i = Processes.Count - 1; i >= 0; i--)
+        {
+            if (!byPid.ContainsKey(Processes[i].Pid)) Processes.RemoveAt(i);
+        }
+
+        var rows = new Dictionary<int, ProcessRow>(Processes.Count);
+        foreach (var row in Processes) rows[row.Pid] = row;
+
+        int threads = 0;
+        foreach (var info in snapshot)
+        {
+            threads += info.Threads;
+            if (rows.TryGetValue(info.Pid, out var row))
+            {
+                row.Apply(info);
+            }
+            else
+            {
+                row = new ProcessRow(info);
+                Processes.Add(row);
+                rows[info.Pid] = row;
+            }
+            row.IsSuspended = _processes.IsSuspended(info.Pid);
+        }
+
+        ProcessCount = snapshot.Count;
+        ThreadCount = threads;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════ Process actions
 
     private void TrimSelected()
     {
-        if (SelectedProcess is null) return;
-        bool ok = _processes.TrimProcess(SelectedProcess.Pid);
-        Status = ok ? $"Trimmed working set of {SelectedProcess.Name}." : $"Could not trim {SelectedProcess.Name} (protected or access denied).";
-        RefreshProcesses();
+        if (SelectedProcess is not { } target) return;
+        bool ok = _memory.TrimProcess(target.Pid);
+        SetStatus(ok
+            ? $"Trimmed working set of {target.Name}."
+            : $"Could not trim {target.Name} (protected or access denied).");
+        _ = RefreshProcessesAsync();
     }
 
-    // ---- Processes ---------------------------------------------------------
-
-    private void RefreshProcesses()
+    private async Task TrimAllAsync()
     {
-        int? keepPid = SelectedProcess?.Pid;
-        Processes.Clear();
-        foreach (var p in _processes.GetProcesses()) Processes.Add(p);
-        if (keepPid is int pid) SelectedProcess = Processes.FirstOrDefault(x => x.Pid == pid);
+        SetStatus("Trimming working sets…");
+        var r = await Task.Run(() => _memory.TrimAll());
+        SetStatus($"Trimmed {r.Trimmed} processes • ~{r.FreedMB:0} MB reclaimed • {r.Skipped} skipped.");
+        await RefreshProcessesAsync();
     }
 
-    private void KillSelected()
+    private async Task PurgeStandbyAsync()
     {
-        if (SelectedProcess is null) return;
-        var target = SelectedProcess;
-
-        if (target.IsProtected)
-        {
-            Status = $"'{target.Name}' is a protected system process and cannot be terminated.";
-            return;
-        }
-
         var confirm = MessageBox.Show(
-            $"End process '{target.Name}' (PID {target.Pid})?\n\nUnsaved work in that program will be lost.",
-            "WinSentinel — Confirm End Task",
+            "Purge the system standby (cached) memory list?\n\n" +
+            "This is an advanced action. Windows immediately rebuilds the cache from disk afterwards, " +
+            "so expect a short I/O spike rather than a lasting win. Use it only when tools report high cached memory.",
+            "WinSentinel — Advanced memory action",
             MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
         if (confirm != MessageBoxResult.Yes) return;
 
-        var r = _processes.Kill(target.Pid);
-        Status = r.Message;
-        RefreshProcesses();
+        SetStatus("Purging standby list…");
+        var r = await Task.Run(() => _memory.PurgeStandby());
+        SetStatus(r.Message);
     }
 
-    /// <summary>Called by the dashboard code-behind after the user picks a priority class.</summary>
-    public void ApplyPriority(ProcessPriorityClass priorityClass)
+    private void KillSelected(bool entireTree)
     {
-        if (SelectedProcess is null) return;
-        var target = SelectedProcess;
+        if (SelectedProcess is not { } target) return;
 
-        if (priorityClass == ProcessPriorityClass.RealTime)
+        if (target.IsProtected)
+        {
+            SetStatus($"'{target.Name}' is a protected system process and cannot be terminated.");
+            return;
+        }
+
+        if (_settings.Current.ConfirmKill)
+        {
+            string body = entireTree
+                ? $"End process tree for '{target.Name}' (PID {target.Pid})?\n\nThis terminates the process and all of its child processes."
+                : $"End process '{target.Name}' (PID {target.Pid})?\n\nUnsaved work in that program will be lost.";
+            var confirm = MessageBox.Show(body, "WinSentinel — Confirm End Task",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+            if (confirm != MessageBoxResult.Yes) return;
+        }
+
+        var r = _processes.Kill(target.Pid, entireTree);
+        SetStatus(r.Message);
+        _ = RefreshProcessesAsync();
+    }
+
+    private void SuspendResumeSelected()
+    {
+        if (SelectedProcess is not { } target) return;
+
+        if (target.IsProtected)
+        {
+            SetStatus($"'{target.Name}' is protected; suspend/resume blocked.");
+            return;
+        }
+
+        var r = target.IsSuspended ? _processes.Resume(target.Pid) : _processes.Suspend(target.Pid);
+        SetStatus(r.Message);
+        target.IsSuspended = _processes.IsSuspended(target.Pid);
+        _ = RefreshProcessesAsync();
+    }
+
+    private void ToggleEcoSelected()
+    {
+        if (SelectedProcess is not { } target) return;
+
+        bool enable = target.EcoMode != true;
+        var r = _processes.SetEfficiencyMode(target.Pid, enable);
+        SetStatus(r.Message);
+        _ = RefreshProcessesAsync();
+    }
+
+    private void ApplySelectedPriority()
+    {
+        if (SelectedProcess is not { } target) return;
+        if (!Enum.TryParse<ProcessPriorityClass>(SelectedPriority, out var priority))
+            return;
+
+        if (priority == ProcessPriorityClass.RealTime)
         {
             var confirm = MessageBox.Show(
-                $"Set '{target.Name}' to REAL-TIME priority?\n\nReal-time can starve the rest of the system, including input and the OS. Use only briefly.",
+                $"Set '{target.Name}' to REAL-TIME priority?\n\n" +
+                "Real-time can starve the rest of the system, including input and the OS. Use only briefly.",
                 "WinSentinel — Confirm Real-time Priority",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
             if (confirm != MessageBoxResult.Yes) return;
         }
 
-        var r = _processes.SetPriority(target.Pid, priorityClass);
-        Status = r.Message;
-        RefreshProcesses();
+        var r = _processes.SetPriority(target.Pid, priority);
+        SetStatus(r.Message);
+        _ = RefreshProcessesAsync();
     }
 
+    private void ApplySelectedIoPriority()
+    {
+        if (SelectedProcess is not { } target) return;
+        int hint = SelectedIoPriority switch { "Very low" => 0, "Low" => 1, _ => 2 };
+        var r = _processes.SetIoPriority(target.Pid, hint);
+        SetStatus(r.Message);
+    }
+
+    private void ApplySelectedMemoryPriority()
+    {
+        if (SelectedProcess is not { } target) return;
+        uint level = SelectedMemoryPriority switch
+        {
+            "Very low" => 1,
+            "Low" => 2,
+            "Medium" => 3,
+            "Below normal" => 4,
+            _ => 5
+        };
+        var r = _processes.SetMemoryPriority(target.Pid, level);
+        SetStatus(r.Message);
+    }
+
+    private void OpenFileLocation()
+    {
+        if (SelectedProcess?.Path is not { } path) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Could not open file location: {ex.Message}");
+        }
+    }
+
+    private void CopyDetails()
+    {
+        if (SelectedProcess is not { } target) return;
+        string text =
+            $"Name: {target.Name}\nPID: {target.Pid}\n" +
+            $"CPU: {target.CpuDisplay}\nMemory: {target.MemoryDisplay}\nDisk: {target.DiskDisplay}\nGPU: {target.GpuDisplay}\n" +
+            $"Threads: {target.Threads}\nPriority: {target.Priority}\n" +
+            $"Efficiency mode: {(target.EcoMode == true ? "on" : "off")}\nProtected: {target.IsProtected}\n" +
+            (target.Company is null ? string.Empty : $"Publisher: {target.Company}\n") +
+            (target.Path is null ? string.Empty : $"Path: {target.Path}\n");
+        try
+        {
+            Clipboard.SetText(text);
+            SetStatus($"Copied details for {target.Name} to the clipboard.");
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Could not copy details: {ex.Message}");
+        }
+    }
+
+    /// <summary>Current processor-affinity mask of the selected process (for the dialog).</summary>
     public long GetSelectedAffinity()
         => SelectedProcess is null ? 0 : _processes.GetAffinity(SelectedProcess.Pid);
 
+    /// <summary>Applies the affinity mask chosen in the dialog.</summary>
     public void ApplyAffinity(long mask)
     {
-        if (SelectedProcess is null) return;
-        var r = _processes.SetAffinity(SelectedProcess.Pid, mask);
-        Status = r.Message;
+        if (SelectedProcess is not { } target) return;
+        var r = _processes.SetAffinity(target.Pid, mask);
+        SetStatus(r.Message);
+        _ = RefreshProcessesAsync();
     }
 
-    // ---- Startup -----------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════ Startup
 
     private void RefreshStartup()
     {
-        StartupItems.Clear();
-        foreach (var i in _startup.GetStartupItems()) StartupItems.Add(i);
+        try
+        {
+            var keep = SelectedStartup;
+            StartupItems.Clear();
+            foreach (var item in _startup.GetStartupItems()) StartupItems.Add(item);
+            if (keep is not null)
+                SelectedStartup = StartupItems.FirstOrDefault(i => i.Name == keep.Name && i.Location == keep.Location);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Could not read startup entries: {ex.Message}");
+        }
+    }
+
+    private void ToggleStartup()
+    {
+        if (SelectedStartup is not { } item) return;
+        bool enable = item.Enabled != true;
+        var r = _startup.SetEnabled(item, enable);
+        SetStatus(r.Message);
+        RefreshStartup();
     }
 
     private void RemoveStartup()
     {
-        if (SelectedStartup is null) return;
-        if (!SelectedStartup.Removable)
+        if (SelectedStartup is not { } item) return;
+
+        if (_settings.Current.ConfirmStartup)
         {
-            Status = $"'{SelectedStartup.Name}' is a machine-wide (HKLM) entry; WinSentinel only edits per-user (HKCU) entries.";
-            return;
+            var confirm = MessageBox.Show(
+                $"Remove startup entry '{item.Name}'?\n\n" +
+                $"This deletes the value from {item.Location}\\…\\{item.Source}. " +
+                "The program itself is not uninstalled; it simply won't auto-start.",
+                "WinSentinel — Confirm Remove",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+            if (confirm != MessageBoxResult.Yes) return;
         }
 
-        var confirm = MessageBox.Show(
-            $"Remove startup entry '{SelectedStartup.Name}'?\n\nThis deletes the value from HKCU\\…\\Run. The program itself is not uninstalled; it simply won't auto-start.",
-            "WinSentinel — Confirm Remove",
-            MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
-        if (confirm != MessageBoxResult.Yes) return;
-
-        var r = _startup.Remove(SelectedStartup.Name);
-        Status = r.Message;
+        var r = _startup.Remove(item);
+        SetStatus(r.Message);
         RefreshStartup();
     }
 
     public void AddStartup(string name, string command)
     {
         var r = _startup.Add(name, command);
-        Status = r.Message;
+        SetStatus(r.Message);
         RefreshStartup();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════ Settings actions
+
+    private void ResetBalloonPosition()
+    {
+        _settings.Update(s => { s.BalloonX = 48; s.BalloonY = 96; });
+        SetStatus("Floating balloon position reset. Drag it anywhere to move it.");
+    }
+
+    private void ResetSettings()
+    {
+        var confirm = MessageBox.Show(
+            "Reset all WinSentinel settings to defaults?\n\nThe app keeps running with default behaviour immediately.",
+            "WinSentinel — Reset Settings",
+            MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        _settings.ResetToDefaults();
+        OnPropertyChanged(string.Empty); // re-read every bound property
+        SetStatus("Settings were reset to defaults.");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════ Lifecycle
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _refreshTimer.Stop();
+        _monitor.SampleUpdated -= OnSample;
     }
 }

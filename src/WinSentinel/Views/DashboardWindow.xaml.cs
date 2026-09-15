@@ -1,55 +1,67 @@
 using System.Diagnostics;
 using System.Windows;
-using System.Windows.Controls;
+using System.Windows.Input;
 using WinSentinel.ViewModels;
 
 namespace WinSentinel.Views;
 
 public partial class DashboardWindow : Window
 {
-    private static readonly ProcessPriorityClass[] PriorityChoices =
-    {
-        ProcessPriorityClass.Idle,
-        ProcessPriorityClass.BelowNormal,
-        ProcessPriorityClass.Normal,
-        ProcessPriorityClass.AboveNormal,
-        ProcessPriorityClass.High,
-        ProcessPriorityClass.RealTime
-    };
-
     public DashboardWindow()
     {
         InitializeComponent();
-
-        foreach (var p in PriorityChoices) PriorityCombo.Items.Add(p.ToString());
-        PriorityCombo.SelectedItem = ProcessPriorityClass.Normal.ToString();
+        PreviewKeyDown += OnPreviewKeyDown;
     }
 
     private DashboardViewModel? Vm => DataContext as DashboardViewModel;
 
-    private void OnApplyPriorityClick(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Window-level shortcuts. Ctrl+F focuses search; Delete ends the selected task and Alt+E
+    /// toggles efficiency mode — but only when focus is NOT inside a text box, so typing in the
+    /// search box can never kill a process by accident.
+    /// </summary>
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (Vm is null) return;
-        if (Vm.SelectedProcess is null)
+        if (e.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
         {
-            MessageBox.Show("Select a process first.", "WinSentinel", MessageBoxButton.OK, MessageBoxImage.Information);
+            SearchBox.Focus();
+            SearchBox.SelectAll();
+            e.Handled = true;
             return;
         }
 
-        if (PriorityCombo.SelectedItem is string name &&
-            Enum.TryParse<ProcessPriorityClass>(name, out var priorityClass))
+        if (e.Key == Key.F5)
         {
-            Vm.ApplyPriority(priorityClass);
+            Vm?.RefreshProcessesCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        bool typing = Keyboard.FocusedElement is System.Windows.Controls.TextBox
+                      or System.Windows.Controls.Primitives.TextBoxBase;
+        if (typing) return;
+
+        if (e.Key == Key.Delete)
+        {
+            Vm?.KillSelectedCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.E && (Keyboard.Modifiers & ModifierKeys.Alt) != 0)
+        {
+            Vm?.ToggleEcoSelectedCommand.Execute(null);
+            e.Handled = true;
         }
     }
 
     private void OnAffinityClick(object sender, RoutedEventArgs e)
     {
         if (Vm is null) return;
+
         var target = Vm.SelectedProcess;
         if (target is null)
         {
-            MessageBox.Show("Select a process first.", "WinSentinel", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Select a process first.", "WinSentinel",
+                MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         if (target.IsProtected)

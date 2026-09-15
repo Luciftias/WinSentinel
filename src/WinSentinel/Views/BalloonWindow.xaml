@@ -1,37 +1,98 @@
 <Window x:Class="WinSentinel.Views.BalloonWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:conv="clr-namespace:WinSentinel.Converters"
         Title="WinSentinel"
-        Width="168" Height="70"
+        Width="204" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
-        WindowStartupLocation="Manual" Left="48" Top="96"
+        WindowStartupLocation="Manual"
+        Opacity="{Binding Opacity}"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
 
-    <Border CornerRadius="16" Background="#F00E1116" BorderBrush="#5522D3EE" BorderThickness="1"
-            MouseLeftButtonDown="OnMouseDown" ToolTip="Drag to move • Double-click to open WinSentinel">
+    <Window.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </Window.Resources>
+
+    <Border CornerRadius="16" Background="{DynamicResource ChromeBrush}"
+            BorderBrush="{DynamicResource AccentBorderBrush}" BorderThickness="1"
+            MouseLeftButtonDown="OnMouseDown" MouseLeftButtonUp="OnMouseUp"
+            ToolTip="Drag to move • Double-click for the dashboard • Right-click for actions">
         <Border.Effect>
-            <DropShadowEffect Color="#000000" BlurRadius="22" ShadowDepth="0" Opacity="0.65"/>
+            <DropShadowEffect Color="{StaticResource ShadowColor}" BlurRadius="24" ShadowDepth="0" Opacity="0.55"/>
         </Border.Effect>
 
-        <Grid Margin="14,9">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+        <Border.ContextMenu>
+            <ContextMenu>
+                <MenuItem Header="Open Dashboard" Click="OnOpenDashboardClick"/>
+                <MenuItem Header="Settings…" Click="OnSettingsClick"/>
+                <Separator/>
+                <MenuItem Header="Trim Memory Now" Click="OnTrimClick"/>
+                <MenuItem Header="Hide Balloon" Click="OnHideClick"/>
+                <MenuItem Header="Exit WinSentinel" Click="OnExitClick"/>
+            </ContextMenu>
+        </Border.ContextMenu>
 
-            <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                <TextBlock Text="CPU" Foreground="#8B949E" FontSize="10" FontFamily="Segoe UI" FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding CpuText}" Foreground="#22D3EE" FontSize="22" FontWeight="SemiBold" FontFamily="Segoe UI"/>
-            </StackPanel>
+        <StackPanel Margin="14,10,14,10">
 
-            <Border Grid.Column="1" Width="1" Background="#2A323D" Margin="6,4"/>
+            <!-- CPU | RAM -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="10,0,0,0">
-                <TextBlock Text="RAM" Foreground="#8B949E" FontSize="10" FontFamily="Segoe UI" FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding RamText}" Foreground="#3B82F6" FontSize="22" FontWeight="SemiBold" FontFamily="Segoe UI"/>
-            </StackPanel>
-        </Grid>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="CPU" Foreground="{DynamicResource SubtleBrush}" FontSize="10"
+                               FontFamily="{DynamicResource UiFont}" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding CpuText}" Foreground="{DynamicResource AccentBrush}" FontSize="22"
+                               FontWeight="SemiBold" FontFamily="{DynamicResource UiFont}"/>
+                </StackPanel>
+
+                <Border Grid.Column="1" Width="1" Background="{DynamicResource BorderBrush}" Margin="6,4"/>
+
+                <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="10,0,0,0">
+                    <TextBlock Text="RAM" Foreground="{DynamicResource SubtleBrush}" FontSize="10"
+                               FontFamily="{DynamicResource UiFont}" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding RamText}" Foreground="{DynamicResource MetricRamBrush}" FontSize="22"
+                               FontWeight="SemiBold" FontFamily="{DynamicResource UiFont}"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Optional extra rows -->
+            <Grid Margin="0,8,0,0" Visibility="{Binding ShowGpu, Converter={StaticResource BoolToVis}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="GPU" Foreground="{DynamicResource SubtleBrush}" FontSize="10"
+                           FontFamily="{DynamicResource UiFont}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Text="{Binding GpuText}" Foreground="{DynamicResource MetricGpuBrush}"
+                           FontSize="13" FontWeight="SemiBold" FontFamily="{DynamicResource UiFont}"/>
+            </Grid>
+
+            <Grid Margin="0,4,0,0" Visibility="{Binding ShowDisk, Converter={StaticResource BoolToVis}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="DISK" Foreground="{DynamicResource SubtleBrush}" FontSize="10"
+                           FontFamily="{DynamicResource UiFont}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Text="{Binding DiskText}" Foreground="{DynamicResource MetricDiskBrush}"
+                           FontSize="13" FontWeight="SemiBold" FontFamily="{DynamicResource UiFont}"/>
+            </Grid>
+
+            <Grid Margin="0,4,0,0" Visibility="{Binding ShowNet, Converter={StaticResource BoolToVis}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="NET" Foreground="{DynamicResource SubtleBrush}" FontSize="10"
+                           FontFamily="{DynamicResource UiFont}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Text="{Binding NetText}" Foreground="{DynamicResource MetricNetDownBrush}"
+                           FontSize="12" FontWeight="SemiBold" FontFamily="{DynamicResource UiFont}"/>
+            </Grid>
+        </StackPanel>
     </Border>
 </Window>

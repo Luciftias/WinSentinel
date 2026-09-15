@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -11,13 +11,16 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AssemblyName>WinSentinel</AssemblyName>
     <RootNamespace>WinSentinel</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>2.0.0</Version>
     <Authors>WinSentinel</Authors>
     <Product>WinSentinel</Product>
-    <Description>Floating Windows 10/11 system monitor and optimizer (CPU/RAM, processes, startup).</Description>
+    <Description>Floating Windows 10/11 system monitor &amp; optimizer — CPU/RAM/GPU/disk/network gauges, process control (Efficiency Mode, suspend, priorities), startup manager, themes. No third-party runtime dependencies.</Description>
     <LangVersion>latest</LangVersion>
     <Platforms>AnyCPU;x64</Platforms>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- WFAC010/WFO0003: the WinForms NotifyIcon brings the WinForms analyzer along; the
+         manifest's PerMonitorV2 DPI declaration is correct for WPF and intentionally kept. -->
+    <NoWarn>$(NoWarn);WFAC010;WFO0003</NoWarn>
   </PropertyGroup>
 
   <!--
