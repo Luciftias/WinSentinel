@@ -18,14 +18,14 @@ startup programs — wrapped in a themed WPF dashboard.
 ![C#](https://img.shields.io/badge/C%23-latest-239120?logo=csharp&logoColor=white&style=for-the-badge)
 ![UI](https://img.shields.io/badge/UI-WPF%20%2B%20MVVM-5C2D91?style=for-the-badge)
 
-![Version](https://img.shields.io/badge/version-2.0.0-22D3EE?style=for-the-badge)
-![Dependencies](https://img.shields.io/badge/runtime%20dependencies-zero-3FB950?style=for-the-badge)
+![Release](https://img.shields.io/github/v/release/Luciftias/WinSentinel?style=for-the-badge&color=22D3EE)
+![Downloads](https://img.shields.io/github/downloads/Luciftias/WinSentinel/total?style=for-the-badge&color=3FB950)
 ![Elevation](https://img.shields.io/badge/elevation-requireAdministrator-F0883E?style=for-the-badge)
 ![Publish](https://img.shields.io/badge/publish-single--file%20EXE-8B5CF6?style=for-the-badge)
 
 ![Verified](https://img.shields.io/badge/verified%20on-Windows%2010%2022H2-2EA043?style=for-the-badge)
 ![Codebase](https://img.shields.io/badge/codebase-~5.9k%20lines%20%C2%B7%2036%20source%20files-6E7681?style=for-the-badge)
-![Status](https://img.shields.io/badge/status-actively%20maintained-22D3EE?style=for-the-badge)
+![Dependencies](https://img.shields.io/badge/runtime%20dependencies-zero-3FB950?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-3DA639?style=for-the-badge)
 
 [Features](#features) · [Architecture](#architecture) · [How it works](#how-it-works) · [Build & run](#build-and-run) · [Usage](#usage) · [Safety](#safety-model) · [Troubleshooting](#troubleshooting)
