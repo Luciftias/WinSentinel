@@ -49,6 +49,15 @@ public sealed class MetricSample
     /// <summary>True when running on wall power.</summary>
     public bool OnAcPower { get; init; } = true;
 
+    /// <summary>True when ACPI thermal zones are exposed by the firmware.</summary>
+    public bool TempAvailable { get; init; }
+
+    /// <summary>Hottest ACPI thermal zone in °C (0 when unavailable).</summary>
+    public double TempCelsius { get; init; }
+
+    /// <summary>Zone name reported by the firmware.</summary>
+    public string TempZone { get; init; } = string.Empty;
+
     /// <summary>Local wall-clock time the sample was captured.</summary>
     public DateTime Timestamp { get; init; } = DateTime.Now;
 }

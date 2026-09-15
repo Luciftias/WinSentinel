@@ -50,11 +50,27 @@ public sealed class AppSettings
 
     public int AlertRamPercent { get; set; } = 90;
 
+    /// <summary>Temperature threshold in °C (ignored when the machine exposes no thermal zones).</summary>
+    public int AlertTempCelsius { get; set; } = 85;
+
     /// <summary>How long the threshold must hold before an alert fires.</summary>
     public int AlertSustainSeconds { get; set; } = 10;
 
     /// <summary>Minimum gap between repeated alerts of the same kind.</summary>
     public int AlertCooldownMinutes { get; set; } = 5;
+
+    /// <summary>Statistical spike detection (z-score vs the rolling baseline) for CPU/disk/network.</summary>
+    public bool SpikeAlertsEnabled { get; set; } = true;
+
+    /// <summary>Standard deviations above the rolling mean that count as a spike.</summary>
+    public double SpikeSensitivity { get; set; } = 3.0;
+
+    /// <summary>Warn when one process stays above the CPU threshold (dashboard open).</summary>
+    public bool RunawayAlertsEnabled { get; set; } = true;
+
+    public int RunawayCpuPercent { get; set; } = 80;
+
+    public int RunawaySustainSeconds { get; set; } = 15;
 
     public AppSettings Clone() => (AppSettings)MemberwiseClone();
 }

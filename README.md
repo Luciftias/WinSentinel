@@ -25,7 +25,7 @@ startup programs — wrapped in a themed WPF dashboard.
 
 ![Verified](https://img.shields.io/badge/verified%20on-Windows%2010%2022H2-2EA043?style=for-the-badge)
 ![Codebase](https://img.shields.io/badge/codebase-~5.9k%20lines%20%C2%B7%2036%20source%20files-6E7681?style=for-the-badge)
-![Dependencies](https://img.shields.io/badge/runtime%20dependencies-zero-3FB950?style=for-the-badge)
+![Dependencies](https://img.shields.io/badge/runtime%20deps-System.Management%20(Microsoft)-F0883E?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-3DA639?style=for-the-badge)
 
 [Features](#features) · [Architecture](#architecture) · [How it works](#how-it-works) · [Build & run](#build-and-run) · [Usage](#usage) · [Safety](#safety-model) · [Troubleshooting](#troubleshooting)
@@ -35,10 +35,12 @@ startup programs — wrapped in a themed WPF dashboard.
 ---
 
 > [!NOTE]
-> **WinSentinel 2.0** is a deep upgrade of the original tray widget: per-process CPU / disk / GPU,
-> Efficiency Mode, suspend/resume, I/O + memory priorities, full startup management, themes,
-> alerts, and a retarget to **.NET 10 LTS** (.NET 8 reached end of support 2026-11-10).
-> Everything below is verified against the source tree at commit `0b3e86a` (v2.0.0).
+> **WinSentinel 2.x** is a deep upgrade of the original tray widget: per-process CPU / disk / GPU /
+> TCP, Efficiency Mode, suspend/resume, I/O + memory priorities, full startup management, themes,
+> a network explorer with per-process TCP attribution (TCP extended statistics), ACPI temperature
+> monitoring, and a three-family anomaly engine (sustained thresholds, z-score spikes, runaway
+> processes) — on **.NET 10 LTS** (.NET 8 reached end of support 2026-11-10).
+> Everything below is verified against the source tree at v2.1.0.
 
 <details>
 <summary><strong>What's new in 2.0 — at a glance</strong> (click to expand)</summary>
@@ -52,6 +54,19 @@ startup programs — wrapped in a themed WPF dashboard.
 | **UX** | **Dark / Light / System themes + 7 accent choices** (live swap), sidebar navigation (Task-Manager-style), 4 live gauges + auto-scaling sparklines, searchable **auto-refreshing process table** (paused at will), row-accurate diffing (selection survives refresh), context menus, keyboard shortcuts, upgraded balloon (opacity, remembered position, optional GPU/disk/net rows, right-click actions), richer tray menu |
 | **Reliability** | Crash handlers + log file, settings persistence (`%AppData%\WinSentinel\settings.json`), resource-hog alerts with cooldown, fixed event-handler leak, background snapshots (UI never blocks), thread-safe tray updates, affinity-mask bug fix |
 | **Platform** | Retargeted to **.NET 10 LTS** |
+
+</details>
+
+<details>
+<summary><strong>What's new in 2.1 — network, temperature, anomaly alerts</strong> (click to expand)</summary>
+
+| Area | Added |
+|------|-------|
+| **Network explorer** | New **Network** page: per-adapter table (friendly name, type, link speed, live ↓/↑, totals) + a **connection explorer** listing every TCP/UDP endpoint (IPv4 + IPv6) with owning process, state and endpoints, with search |
+| **Per-process TCP** | Process table gains a **NET** column — TCP payload rates attributed per process via TCP extended statistics (`Set/Get[PerTcp6]ConnectionEStats`), enabled per connection; needs elevation, IPv4 + IPv6, payload bytes only |
+| **Temperature** | ACPI thermal zones via WMI (`Win32_PerfFormattedData_Counters_ThermalZoneInformation` first, `MSAcpi_ThermalZoneTemperature` as the admin fallback) — Overview card, °C alert threshold; machines exposing no zones degrade gracefully |
+| **Anomaly detection** | **AlertService v2**: sustained thresholds (CPU / RAM / temperature) + **statistical spikes** (z-score vs the rolling baseline, CPU / disk / network) + **runaway-process** detection; per-kind cooldowns, 100-entry in-app history, dedicated **Alerts** page, tray notifications |
+| **Dependency** | Exactly one NuGet package: Microsoft's `System.Management` (MIT) for the WMI sensors |
 
 </details>
 
@@ -95,15 +110,18 @@ WinSentinel
 ├── System Tray              NotifyIcon tooltip (CPU/RAM/GPU), context menu:
 │                            Open · Show Balloon · Trim · Purge standby ·
 │                            Alerts toggle · Settings · Exit.
-├── Alerts                   Sustained CPU/RAM thresholds → tray notification,
-│                            rate-limited, never changes system state.
+├── Alerts                   Three detector families — sustained CPU/RAM/temperature
+│                            thresholds, z-score spikes (CPU/disk/network), runaway
+│                            processes. Rate-limited, read-only, tray-notified, logged
+│                            to an in-app history.
 └── Dashboard (sidebar nav)
     ├── Overview             4 live gauges (CPU/RAM/GPU + disk activity),
     │                        auto-scaling sparklines, network down/up graphs,
-    │                        battery + uptime + clock detail, memory tuning card.
+    │                        battery + temperature + uptime + clock detail,
+    │                        memory tuning card.
     ├── Processes            Searchable, auto-refreshing table: CPU %, memory,
-    │                        disk rate, GPU %, threads, priority, ECO chip,
-    │                        suspended state. Per-process actions:
+    │                        disk rate, TCP rate (NET), GPU %, threads, priority,
+    │                        ECO chip, suspended state. Per-process actions:
     │                          • End Task / End Tree       — confirmations + guard rail
     │                          • Suspend / Resume         — NtSuspendProcess
     │                          • Efficiency Mode          — EcoQoS toggle
@@ -113,10 +131,15 @@ WinSentinel
     │                          • I/O priority             — Very low / Low / Normal
     │                          • Memory priority          — Very low … Normal
     │                          • Open file location / Copy details
+    ├── Network              Adapter table (name, link, ↓/↑, totals) + connection
+    │                        explorer (TCP/UDP, IPv4 + IPv6, owning process, state)
+    │                        with filter and manual refresh.
     ├── Startup              HKCU/HKLM Run + RunOnce + Startup folders, with
     │                        enable/disable (StartupApproved), add, remove (HKCU).
+    ├── Alerts               Detector toggles + thresholds + sensitivity, test alert,
+    │                        clear history, recent-alert feed.
     └── Settings             Theme + accent, sampling cadences, balloon options,
-                             alert thresholds, safety confirmations, about/reset.
+                             safety confirmations, about/reset.
 ```
 
 ### Live telemetry
@@ -131,6 +154,10 @@ WinSentinel
 | GPU % (busiest engine) | Overview gauge + per-process column | PDH `\GPU Engine(*)` |
 | Battery % + AC state | Overview card (only when a battery exists) | `GetSystemPowerStatus` |
 | Per-process CPU / disk / GPU, threads, priority, ECO state | Processes table (searchable) | Process API + PDH + `GetProcessInformation` |
+| Per-process TCP rate (payload) | Processes table (NET column) | TCP EStats deltas — elevated, IPv4 + IPv6 |
+| Temperature (°C) | Overview card + temp alerts | WMI ACPI thermal zones (10 s cadence) |
+| Adapters: name / link / ↓↑ / totals | Network page | `GetIfTable` + registry/WMI friendly names |
+| Active TCP/UDP endpoints | Network page (searchable) | `GetExtendedTcpTable` / `GetExtendedUdpTable` |
 
 ### Process control
 
@@ -169,12 +196,13 @@ the per-user / all-users Startup folders — and merges Explorer's `StartupAppro
 - Floating balloon: always-on-top, frameless, translucent, **draggable with remembered position**
   (clamped into the current virtual screen), opacity slider, optional GPU / disk / network rows,
   right-click quick actions, double-click → dashboard.
-- Dashboard: sidebar-style navigation — Overview, Processes, Startup, Settings.
+- Dashboard: sidebar-style navigation — Overview, Processes, Network, Startup, Alerts, Settings.
 - **Themes**: Dark / Light / System + accents Cyan, Blue, Violet, Green, Orange, Rose, System
   (reads the real Windows accent + app-theme and re-applies live).
 - Configurable sampling cadence (500 / 1000 / 2000 ms) and process refresh (1 / 2 / 5 / 10 s), with
   a **Pause** switch and a filter that matches name, PID or publisher.
-- Sustained-threshold **alerts** with cooldown — informational only, they never change system state.
+- **Anomaly alerts** — sustained thresholds, z-score spikes and runaway processes, with an Alerts
+  page (tuning + history) and tray notifications; informational only, they never change system state.
 
 ### Reliability and safety
 
@@ -211,6 +239,11 @@ the per-user / all-users Startup folders — and merges Explorer's `StartupAppro
 | Standby purge | Overview + tray | `NtSetSystemInformation(SystemMemoryListInformation)` |
 | Startup scan / toggle / add / remove | Startup tab | Registry `Run`, `RunOnce`, `StartupApproved`, Startup folders |
 | Resource alerts | Tray balloon | `AlertService` sustained thresholds |
+| Anomaly detection | Alerts page + tray | z-score spikes (CPU/disk/net), runaway process, temp threshold |
+| Temperature | Overview card + alerts | WMI `Win32_PerfFormattedData_Counters_ThermalZoneInformation` → `MSAcpi_ThermalZoneTemperature` |
+| Per-process TCP rate | Table (NET column) | `Set/Get[PerTcp6]ConnectionEStats` (elevated, payload only) |
+| Connection explorer | Network page | `GetExtendedTcpTable` / `GetExtendedUdpTable` (IPv4 + IPv6) |
+| Adapter stats | Network page | `GetIfTable` + registry/WMI friendly-name resolution |
 | Themes / accents | Settings tab | Runtime dictionary swap + DWM registry |
 
 ---
@@ -223,6 +256,7 @@ the per-user / all-users Startup folders — and merges Explorer's `StartupAppro
 flowchart TB
     subgraph HOST["Windows host"]
         WINAPI["Win32 / NT / PDH APIs"]
+        WMIAPI["WMI: ACPI thermal zones"]
         REG["Registry: Run + StartupApproved"]
     end
 
@@ -230,9 +264,11 @@ flowchart TB
         subgraph SERVICES["Services"]
             MON["SystemMonitorService<br/>CPU · RAM · disk · net · GPU · battery"]
             PROC["ProcessService<br/>snapshot + guarded mutations"]
+            NETW["NetworkService<br/>adapters · connections · EStats"]
+            TEMPS["TemperatureService<br/>ACPI zones via WMI (10 s)"]
             MOPT["MemoryOptimizer<br/>trim + standby purge"]
             STARTM["StartupManager<br/>Run / RunOnce / folders"]
-            ALERT["AlertService<br/>sustained thresholds"]
+            ALERT["AlertService<br/>thresholds + spikes + runaway"]
             SETT["SettingsService<br/>JSON, debounced"]
         end
         subgraph VMS["View models"]
@@ -240,7 +276,7 @@ flowchart TB
             BVM["BalloonViewModel"]
         end
         subgraph UIV["Views"]
-            DASH["DashboardWindow<br/>Overview · Processes · Startup · Settings"]
+            DASH["DashboardWindow<br/>Overview · Processes · Network · Startup · Alerts · Settings"]
             BALW["BalloonWindow<br/>floating, always-on-top"]
             AFFW["AffinityWindow<br/>per-core dialog"]
         end
@@ -250,13 +286,19 @@ flowchart TB
 
     WINAPI --> MON
     WINAPI --> PROC
+    WINAPI --> NETW
     WINAPI --> MOPT
+    WMIAPI --> TEMPS
     REG --> STARTM
     REG --> THEMEM
     MON -- "SampleUpdated" --> DVM
     MON -- "SampleUpdated" --> BVM
     MON -- "SampleUpdated" --> ALERT
     MON -- "SampleUpdated" --> TRAYM
+    NETW --> MON
+    NETW --> PROC
+    NETW --> DVM
+    TEMPS --> MON
     PROC --> DVM
     MOPT --> DVM
     STARTM --> DVM
@@ -264,6 +306,7 @@ flowchart TB
     SETT --> BVM
     SETT --> THEMEM
     ALERT -- "AlertRaised" --> TRAYM
+    ALERT -- "history" --> DVM
     DVM --> DASH
     DVM --> AFFW
     BVM --> BALW
@@ -318,6 +361,7 @@ flowchart TB
     P2["TotalProcessorTime +<br/>GetProcessIoCounters"]
     P3["PDH GPU Engine<br/>pid_* instances"]
     P4["GetProcessInformation<br/>EcoQoS state"]
+    P5["NetworkService EStats<br/>TCP bytes per connection → PID"]
     DELTA["ProcessSampler<br/>per-PID delta engine"]
     INFO["ProcessInfo<br/>immutable snapshot"]
     DIFF["ProcessRow merge<br/>diff by PID"]
@@ -327,11 +371,13 @@ flowchart TB
     PS --> P2
     PS --> P3
     PS --> P4
+    PS --> P5
     P2 --> DELTA
     DELTA --> INFO
     P1 --> INFO
     P3 --> INFO
     P4 --> INFO
+    P5 --> INFO
     INFO --> DIFF
     DIFF --> GRID
 ```
@@ -494,6 +540,7 @@ gitGraph
     commit id: "v2.0: deep upgrade"
     commit id: "fix: theme tokens"
     commit id: "fix: button styles"
+    commit id: "v2.1: network · temp · anomalies"
 ```
 
 ---
@@ -507,7 +554,8 @@ gitGraph
 | UI | WPF (XAML) + MVVM | Hand-rolled `ViewModelBase` + `RelayCommand`, no MVVM framework |
 | Tray | WinForms `NotifyIcon` | The only WinForms file: `TrayIconManager.cs`; implicit WinForms usings removed project-wide |
 | Charts | Custom controls | `CircularGauge`, `Sparkline` — owner-drawn in `OnRender`, zero dependencies |
-| Interop | P/Invoke | kernel32 · psapi · ntdll · powrprof · iphlpapi · pdh — all declared in one file |
+| Interop | P/Invoke + WMI | kernel32 · psapi · ntdll · powrprof · iphlpapi · pdh declared in one file; `System.Management` for WMI sensors |
+| WMI | `System.Management` (Microsoft, MIT) | **The only NuGet package** — ACPI thermal zones + adapter friendly names |
 | Settings | `System.Text.Json` | Debounced save, sanitized load |
 | Packaging | Single-file self-contained publish | `PublishSingleFile` + `IncludeNativeLibrariesForSelfExtract` |
 
@@ -523,6 +571,8 @@ gitGraph
 | GPU metrics | Windows 10 1709+, WDDM 2.0+ driver | GPU Engine counters simply do not exist on some VMs/drivers; the UI hides them honestly |
 | Efficiency Mode | Windows 10 / 11 | On Win10 the state is *set-only* (see [How it works](#how-it-works)) |
 | Standby purge | Administrator | `SeProfileSingleProcessPrivilege` |
+| Per-process TCP (NET column) | Administrator | TCP EStats collection can only be enabled by an elevated process — same constraint as Process Explorer; UDP is not attributed per process |
+| Temperature | ACPI thermal zones exposed by the firmware | Many VMs/mainboards expose none — the card and the temp alert stay hidden (verify with `Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation`) |
 | Architecture | x64 / AnyCPU | Both solution platforms supported |
 
 ---
@@ -536,7 +586,7 @@ WinSentinel/
 ├── .gitignore
 └── src/
     └── WinSentinel/
-        ├── WinSentinel.csproj           net10.0-windows · WinExe · v2.0.0
+        ├── WinSentinel.csproj           net10.0-windows · WinExe · v2.1.0
         ├── app.manifest                 requireAdministrator + PerMonitorV2 DPI + longPathAware
         ├── App.xaml / App.xaml.cs       Bootstrap: settings → theme → services → tray/balloon
         ├── Assets/                      app.ico · tray.ico · logo.png
@@ -545,19 +595,22 @@ WinSentinel/
         │   ├── Dark.xaml                Dark colour tokens
         │   └── Light.xaml               Light colour tokens
         ├── Models/
-        │   ├── MetricSample.cs          Immutable system snapshot
-        │   ├── ProcessInfo.cs           Immutable process snapshot (CPU/disk/GPU/eco aware)
+        │   ├── MetricSample.cs          Immutable system snapshot (incl. temperature)
+        │   ├── ProcessInfo.cs           Immutable process snapshot (CPU/disk/GPU/net/eco aware)
+        │   ├── NetworkInfo.cs           AdapterInfo + ConnectionInfo rows for the Network page
         │   ├── StartupItem.cs           Startup entry (+ StartupApproved state)
         │   └── AppSettings.cs           Persisted user settings (all defaulted)
         ├── Services/
         │   ├── NativeMethods.cs         All P/Invoke declarations (single interop surface)
         │   ├── PdhHelper.cs             PDH wrapper: GPU Engine + PhysicalDisk counters
-        │   ├── SystemMonitorService.cs  CPU/RAM/disk/net/GPU/battery/clock sampling
+        │   ├── SystemMonitorService.cs  CPU/RAM/disk/net/GPU/battery/temp/clock sampling
         │   ├── ProcessService.cs        Snapshot + all guarded mutations
         │   ├── ProcessSampler.cs        Delta engine for per-process rates
+        │   ├── NetworkService.cs        Adapters · connection tables · per-process TCP (EStats)
+        │   ├── TemperatureService.cs    ACPI thermal zones via WMI (back-off when absent)
         │   ├── MemoryOptimizer.cs       Trim all / single, standby purge
         │   ├── StartupManager.cs        Run/RunOnce/folders + enable/disable/add/remove
-        │   ├── AlertService.cs          Sustained CPU/RAM alert detector
+        │   ├── AlertService.cs          Threshold + spike + runaway detectors, history
         │   ├── SettingsService.cs       JSON settings (debounced save, sanitised load)
         │   ├── ProtectedProcesses.cs    OS-critical denylist (service-layer enforced)
         │   └── Logger.cs                Crash/diagnostic log (self-trimming, never throws)
@@ -566,7 +619,7 @@ WinSentinel/
         │   ├── RelayCommand.cs          ICommand relay (CommandManager requery)
         │   ├── ProcessRow.cs            In-place-updated table row VM + search matching
         │   ├── BalloonViewModel.cs      Balloon data + visibility/opacity/position
-        │   └── DashboardViewModel.cs    Gauges, table, startup, settings surface
+        │   └── DashboardViewModel.cs    Gauges, table, network, startup, alerts, settings
         ├── Controls/
         │   ├── CircularGauge.cs         Owner-drawn arc gauge (no dependencies)
         │   └── Sparkline.cs             Owner-drawn real-time line graph
@@ -576,7 +629,7 @@ WinSentinel/
         │   └── TrayIconManager.cs       NotifyIcon owner (only WinForms file)
         └── Views/
             ├── BalloonWindow.xaml(.cs)   The floating balloon
-            ├── DashboardWindow.xaml(.cs) Sidebar dashboard (4 pages)
+            ├── DashboardWindow.xaml(.cs) Sidebar dashboard (6 pages)
             └── AffinityWindow.xaml(.cs)  Per-core affinity dialog
 ```
 
@@ -619,6 +672,12 @@ logical processors; firmware that doesn't report it degrades to "not shown".
   multiple alias rows (`\DEVICE\TCPIP_{GUID}` …); **identical deltas are collapsed** so each flow is
   counted once. Loopback is skipped, 32-bit counter wrap is handled, and a struct-layout guard
   (860-byte `MIB_IFROW`) bails rather than misread.
+- **Per-process TCP** — established connections come from `GetExtendedTcpTable`; collection is
+  enabled per connection with `Set[PerTcp6]ConnectionEStats` (requires elevation, exactly like
+  Process Explorer) and payload byte counters are read back with `Get[PerTcp6]ConnectionEStats`.
+  The `EnableCollection` flag is checked before any value is trusted (per the documented warning);
+  rates are per-connection deltas aggregated by PID. IPv4 + IPv6, payload bytes only — UDP is not
+  attributed per process and the UI says so.
 
 ### Efficiency Mode (EcoQoS) — with an honest caveat
 
@@ -652,6 +711,29 @@ rebuilds the cache from disk afterwards. The UI says exactly that — no "RAM cl
 Run / RunOnce for HKCU + HKLM, plus both Startup folders. Enable state is decoded from Explorer's
 `StartupApproved` blobs (first byte's low bit: `0x02` = enabled, `0x03` = disabled) and toggled
 **non-destructively** by rewriting that blob — never by deleting the entry's command.
+
+### Temperature — ACPI via WMI, honest about availability
+
+`TemperatureService` queries `Win32_PerfFormattedData_Counters_ThermalZoneInformation` (usually
+available without admin) and falls back to the admin-only `MSAcpi_ThermalZoneTemperature`. Values
+are converted from Kelvin (plain or tenths, auto-detected), implausible readings are discarded,
+and the hottest plausible zone is shown as `°C + zone name` on the Overview and fed to the temp
+alert. When firmware exposes no zones (common in VMs) the service backs off after a few misses and
+the card stays hidden — no fake numbers.
+
+### Anomaly detection — three detector families
+
+`AlertService v2` runs three independent detectors over the same sample stream and is entirely
+read-only — it never changes system state:
+
+| Detector | Rule | Signals |
+|----------|------|---------|
+| Sustained threshold | value ≥ threshold for N consecutive seconds | CPU, RAM, temperature |
+| Statistical spike | z-score ≥ sensitivity vs the rolling baseline (~2 min window, ≥ 30 samples) | CPU, disk activity, network traffic |
+| Runaway process | same process ≥ CPU threshold for N seconds | fed by the process table (dashboard open) |
+
+Every alert is rate-limited **per kind** (cooldown), recorded in a 100-entry in-app history,
+mirrored to a tray notification, and listed on the Alerts page with time, title and message.
 
 ### Guard rails
 
@@ -761,7 +843,7 @@ This is a defensive, user-facing utility for monitoring and tuning **your own ma
 | Tray tooltip | Marshalled to the UI thread and coalesced (max 120 chars) |
 | Idle cost | One timer + one PDH query set; no polling when the dashboard is closed beyond system sampling |
 | Log growth | Self-trimming at 512 KB |
-| Dependencies | Zero third-party runtime packages |
+| Dependencies | One NuGet package: Microsoft's `System.Management` (WMI thermal zones + adapter names) |
 
 ---
 
@@ -790,6 +872,9 @@ invalid state.
 | Many processes show access-denied data | App is not running elevated | Accept UAC at launch |
 | End Task "blocked" for a process | It is on the protected list | By design — those processes keep Windows alive |
 | ECO chip state seems stale on Windows 10 | `GetProcessInformation` not implemented on Win10 | Expected: the chip reflects state set through WinSentinel on Win10; on Win11 it is queried |
+| NET column shows `—` for every process | Per-process TCP (EStats) could not be enabled | Run elevated; rates also appear one refresh after a connection starts (first delta) |
+| Temperature card missing | Firmware exposes no ACPI thermal zones (common on VMs) | Expected — the service backs off and logs one line; nothing is faked |
+| Alerts feel noisy or silent | Spike sensitivity / cooldown tuning | Alerts page → sensitivity (σ), cooldown and thresholds are all adjustable live |
 | "WinSentinel is already running" at launch | Single-instance mutex | Check the system tray |
 | Balloon disappeared after a monitor change | Position clamped into current virtual screen | Tray → Show Floating Balloon, or Settings → Reset position |
 | App crashed once and recovered | Crash handler logged it | Read `%AppData%\WinSentinel\winsentinel.log` |
@@ -798,15 +883,18 @@ invalid state.
 
 ## Extending
 
-- **Temperatures/fans** — add `LibreHardwareMonitorLib` (MPL-2.0) behind an interface; note it
-  installs a kernel driver and needs admin (intentionally not bundled).
-- **Per-process network** — an ETW `Microsoft-Windows-Kernel-Network` session (admin) is the
-  documented path; the polling `GetPerTcpConnectionEStats` option needs per-connection opt-in.
+- **Real CPU / GPU package temps** — add `LibreHardwareMonitorLib` (MPL-2.0) behind an interface;
+  note it installs a kernel driver (PawnIO since 2025) and needs admin. The built-in
+  `TemperatureService` covers only firmware ACPI zones.
+- **Per-process UDP / full network attribution** — an ETW `Microsoft-Windows-Kernel-Network` session
+  (admin) would extend today's TCP-only EStats path to UDP and connection-less traffic.
 - **History persistence** — `MetricSample` is immutable; serialize to CSV/SQLite from
   `SystemMonitorService.SampleUpdated`.
 - **Theming** — add a colours-only `Themes/*.xaml` dictionary and register it in `ThemeManager`.
 - **More startup sources** — the pattern lives entirely in `StartupManager`; scheduled tasks would
   be the natural fifth source.
+- **Rule-based auto-actions** — the alert detectors already know *when* something is off; a rules
+  layer could apply Efficiency Mode automatically (kept out of scope to stay read-only by default).
 
 ---
 
@@ -816,8 +904,9 @@ invalid state.
 
 - Optional history graphs (CSV/SQLite sink on `SampleUpdated`)
 - Scheduled-task visibility in the Startup tab
-- Temperature/fan support behind the optional driver interface
-- Additional accent presets / community theme files
+- Real CPU/GPU package temps via LibreHardwareMonitor (optional driver)
+- Per-process UDP attribution via ETW
+- Rule-based auto-actions driven by the anomaly detectors
 
 ---
 
@@ -833,5 +922,5 @@ relying on it in production.
 ---
 
 <div align="center">
-<sub>WinSentinel 2.0 · C# / .NET 10 / WPF · MVVM · zero third-party runtime dependencies · verified on Windows 10 22H2</sub>
+<sub>WinSentinel 2.1 · C# / .NET 10 / WPF · MVVM · one Microsoft package (`System.Management`) · verified on Windows 10 22H2</sub>
 </div>

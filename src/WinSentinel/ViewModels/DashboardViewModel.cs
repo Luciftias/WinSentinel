@@ -22,6 +22,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     private readonly ProcessService _processes;
     private readonly MemoryOptimizer _memory;
     private readonly StartupManager _startup;
+    private readonly NetworkService _network;
     private readonly SettingsService _settings;
     private readonly ThemeManager _theme;
     private readonly AlertService _alerts;
@@ -29,13 +30,18 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     private readonly DispatcherTimer _refreshTimer;
 
     private bool _refreshBusy;
+    private bool _connectionsBusy;
     private bool _disposed;
+
+    private const int NetworkTabIndex = 2;
+    private const int SettingsTabIndex = 5;
 
     public DashboardViewModel(
         SystemMonitorService monitor,
         ProcessService processes,
         MemoryOptimizer memory,
         StartupManager startup,
+        NetworkService network,
         SettingsService settings,
         ThemeManager theme,
         AlertService alerts)
@@ -44,6 +50,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         _processes = processes;
         _memory = memory;
         _startup = startup;
+        _network = network;
         _settings = settings;
         _theme = theme;
         _alerts = alerts;
@@ -55,6 +62,14 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         ProcessesView = CollectionViewSource.GetDefaultView(Processes);
         ProcessesView.Filter = o => o is ProcessRow row && row.Matches(_searchText);
         ProcessesView.SortDescriptions.Add(new SortDescription(nameof(ProcessRow.MemoryMB), ListSortDirection.Descending));
+
+        // Filtered view over the network connections --------------------------------
+        ConnectionView = CollectionViewSource.GetDefaultView(Connections);
+        ConnectionView.Filter = o => o is ConnectionInfo connection && connection.Matches(_connectionSearch);
+
+        // Alert history ---------------------------------------------------------------
+        _alerts.AlertRaised += OnAlertRaised;
+        foreach (var alert in _alerts.History) AlertsHistory.Add(alert);
 
         // Seed histories so the sparklines draw a full-width baseline right away.
         for (int i = 0; i < HistoryLength; i++)
@@ -89,18 +104,24 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         ResetBalloonPositionCommand = new RelayCommand(_ => ResetBalloonPosition());
         TestAlertCommand = new RelayCommand(_ => _alerts.RaiseTest());
         ResetSettingsCommand = new RelayCommand(_ => ResetSettings());
+        RefreshConnectionsCommand = new RelayCommand(_ => _ = RefreshConnectionsAsync());
+        ClearAlertsCommand = new RelayCommand(_ => ClearAlerts());
 
         // Process auto-refresh timer -------------------------------------------------
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(SelectedRefreshSeconds) };
         _refreshTimer.Tick += (_, _) =>
         {
-            if (AutoRefresh && !Paused) _ = RefreshProcessesAsync();
+            if (!AutoRefresh || Paused) return;
+            _ = RefreshProcessesAsync();
+            UpdateAdapters();
+            if (SelectedTabIndex == NetworkTabIndex) _ = RefreshConnectionsAsync();
         };
         _refreshTimer.Start();
 
         if (_monitor.Latest is not null) Apply(_monitor.Latest);
         _ = RefreshProcessesAsync();
         RefreshStartup();
+        UpdateAdapters();
         SetStatus("Monitoring system…");
     }
 
@@ -126,7 +147,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     public int SelectedTabIndex { get => _selectedTabIndex; set => SetField(ref _selectedTabIndex, value); }
 
     /// <summary>Navigates the dashboard to the Settings page (used by tray "Settings…").</summary>
-    public void ShowSettings() => SelectedTabIndex = 3;
+    public void ShowSettings() => SelectedTabIndex = SettingsTabIndex;
 
     // ═══════════════════════════════════════════════════════════════════ Live metrics
 
@@ -176,6 +197,12 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     private string _batteryDetail = string.Empty;
     public string BatteryDetail { get => _batteryDetail; private set => SetField(ref _batteryDetail, value); }
 
+    private bool _tempAvailable;
+    public bool TempAvailable { get => _tempAvailable; private set => SetField(ref _tempAvailable, value); }
+
+    private string _tempDetail = "—";
+    public string TempDetail { get => _tempDetail; private set => SetField(ref _tempDetail, value); }
+
     private double _diskMax = 10;
     public double DiskMax { get => _diskMax; private set => SetField(ref _diskMax, value); }
 
@@ -186,6 +213,27 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<ProcessRow> Processes { get; } = new();
     public ICollectionView ProcessesView { get; }
+
+    // ── Network page ──────────────────────────────────────────────────────
+    public ObservableCollection<AdapterInfo> Adapters { get; } = new();
+    public ObservableCollection<ConnectionInfo> Connections { get; } = new();
+    public ICollectionView ConnectionView { get; }
+
+    private string _connectionSearch = string.Empty;
+    public string ConnectionSearch
+    {
+        get => _connectionSearch;
+        set { if (SetField(ref _connectionSearch, value)) ConnectionView.Refresh(); }
+    }
+
+    private int _connectionCount;
+    public int ConnectionCount { get => _connectionCount; private set => SetField(ref _connectionCount, value); }
+
+    /// <summary>True when per-process TCP statistics could be enabled (needs elevation).</summary>
+    public bool ProcessTcpStatsAvailable => _network.ProcessTcpStatsAvailable;
+
+    // ── Alerts page ───────────────────────────────────────────────────────
+    public ObservableCollection<Alert> AlertsHistory { get; } = new();
 
     private string _searchText = string.Empty;
     public string SearchText
@@ -430,6 +478,76 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         }
     }
 
+    public double AlertTempCelsius
+    {
+        get => _settings.Current.AlertTempCelsius;
+        set
+        {
+            int v = (int)Math.Round(value);
+            if (v == _settings.Current.AlertTempCelsius) return;
+            _settings.Update(s => s.AlertTempCelsius = v);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool SpikeAlertsEnabled
+    {
+        get => _settings.Current.SpikeAlertsEnabled;
+        set
+        {
+            if (value == _settings.Current.SpikeAlertsEnabled) return;
+            _settings.Update(s => s.SpikeAlertsEnabled = value);
+            OnPropertyChanged();
+        }
+    }
+
+    public double SpikeSensitivity
+    {
+        get => _settings.Current.SpikeSensitivity;
+        set
+        {
+            double v = Math.Round(Math.Clamp(value, 1.5, 6.0), 1);
+            if (Math.Abs(v - _settings.Current.SpikeSensitivity) < 0.05) return;
+            _settings.Update(s => s.SpikeSensitivity = v);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool RunawayAlertsEnabled
+    {
+        get => _settings.Current.RunawayAlertsEnabled;
+        set
+        {
+            if (value == _settings.Current.RunawayAlertsEnabled) return;
+            _settings.Update(s => s.RunawayAlertsEnabled = value);
+            OnPropertyChanged();
+        }
+    }
+
+    public double RunawayCpuPercent
+    {
+        get => _settings.Current.RunawayCpuPercent;
+        set
+        {
+            int v = (int)Math.Round(value);
+            if (v == _settings.Current.RunawayCpuPercent) return;
+            _settings.Update(s => s.RunawayCpuPercent = v);
+            OnPropertyChanged();
+        }
+    }
+
+    public double RunawaySustainSeconds
+    {
+        get => _settings.Current.RunawaySustainSeconds;
+        set
+        {
+            int v = (int)Math.Round(value);
+            if (v == _settings.Current.RunawaySustainSeconds) return;
+            _settings.Update(s => s.RunawaySustainSeconds = v);
+            OnPropertyChanged();
+        }
+    }
+
     public string SettingsPath => _settings.SettingsPath;
 
     // ═══════════════════════════════════════════════════════════════════ Commands
@@ -453,6 +571,8 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     public RelayCommand ResetBalloonPositionCommand { get; }
     public RelayCommand TestAlertCommand { get; }
     public RelayCommand ResetSettingsCommand { get; }
+    public RelayCommand RefreshConnectionsCommand { get; }
+    public RelayCommand ClearAlertsCommand { get; }
 
     // ═══════════════════════════════════════════════════════════════════ Sampling
 
@@ -491,6 +611,10 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
             string state = s.OnAcPower ? "AC power" : "On battery";
             BatteryDetail = s.BatteryPercent >= 0 ? $"{s.BatteryPercent}%  •  {state}" : state;
         }
+
+        TempAvailable = s.TempAvailable;
+        if (s.TempAvailable)
+            TempDetail = $"{s.TempCelsius:0.0} °C  •  {s.TempZone}";
 
         Uptime = FormatUptime();
 
@@ -599,6 +723,19 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
 
         ProcessCount = snapshot.Count;
         ThreadCount = threads;
+
+        // Feed the runaway-process detector with the current top CPU consumer.
+        ProcessInfo? top = null;
+        foreach (var info in snapshot)
+        {
+            if (info.CpuPercent is not > 0) continue;
+            if (top is null || (info.CpuPercent ?? 0) > (top.CpuPercent ?? 0)) top = info;
+        }
+
+        if (top is not null)
+            _alerts.ReportTopProcess(top.Pid, top.Name, top.CpuPercent ?? 0, _settings.Current.ProcessRefreshMs / 1000.0);
+        else
+            _alerts.ReportTopProcess(0, string.Empty, 0, 0);
     }
 
     // ═══════════════════════════════════════════════════════════════════ Process actions
@@ -750,6 +887,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         string text =
             $"Name: {target.Name}\nPID: {target.Pid}\n" +
             $"CPU: {target.CpuDisplay}\nMemory: {target.MemoryDisplay}\nDisk: {target.DiskDisplay}\nGPU: {target.GpuDisplay}\n" +
+            $"Net (TCP): ↓ {ByteFormat.Rate(target.NetDownBps ?? 0)}  ↑ {ByteFormat.Rate(target.NetUpBps ?? 0)}\n" +
             $"Threads: {target.Threads}\nPriority: {target.Priority}\n" +
             $"Efficiency mode: {(target.EcoMode == true ? "on" : "off")}\nProtected: {target.IsProtected}\n" +
             (target.Company is null ? string.Empty : $"Publisher: {target.Company}\n") +
@@ -853,6 +991,74 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         SetStatus("Settings were reset to defaults.");
     }
 
+    // ═══════════════════════════════════════════════════════════════════ Network page
+
+    private void UpdateAdapters()
+    {
+        try
+        {
+            var latest = _network.LastAdapters;
+            Adapters.Clear();
+            foreach (var adapter in latest) Adapters.Add(adapter);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Adapter update", ex);
+        }
+    }
+
+    private async Task RefreshConnectionsAsync()
+    {
+        if (_connectionsBusy || _disposed) return;
+        _connectionsBusy = true;
+        try
+        {
+            var names = new Dictionary<int, string>(Processes.Count);
+            foreach (var row in Processes) names[row.Pid] = row.Name;
+
+            var list = await Task.Run(() => _network.GetConnections(names));
+            if (_disposed) return;
+
+            Connections.Clear();
+            foreach (var connection in list) Connections.Add(connection);
+            ConnectionCount = list.Count;
+            OnPropertyChanged(nameof(ProcessTcpStatsAvailable));
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Connection refresh", ex);
+        }
+        finally
+        {
+            _connectionsBusy = false;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════ Alerts page
+
+    private void OnAlertRaised(object? sender, Alert alert)
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _dispatcher.BeginInvoke(() => AddAlert(alert));
+            return;
+        }
+        AddAlert(alert);
+    }
+
+    private void AddAlert(Alert alert)
+    {
+        AlertsHistory.Insert(0, alert);
+        while (AlertsHistory.Count > 100) AlertsHistory.RemoveAt(AlertsHistory.Count - 1);
+    }
+
+    private void ClearAlerts()
+    {
+        _alerts.ClearHistory();
+        AlertsHistory.Clear();
+        SetStatus("Alert history cleared.");
+    }
+
     // ═══════════════════════════════════════════════════════════════════ Lifecycle
 
     public void Dispose()
@@ -861,5 +1067,6 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         _disposed = true;
         _refreshTimer.Stop();
         _monitor.SampleUpdated -= OnSample;
+        _alerts.AlertRaised -= OnAlertRaised;
     }
 }

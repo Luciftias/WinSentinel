@@ -10,8 +10,8 @@ namespace WinSentinel.Services;
 ///
 /// Capabilities (all verified against the documented Windows API surface):
 ///  • Snapshot with per-process CPU % (GetProcessTimes deltas), disk I/O rates
-///    (GetProcessIoCounters deltas), GPU % (PDH GPU Engine, busiest engine) and
-///    Efficiency Mode state (GetProcessInformation).
+///    (GetProcessIoCounters deltas), GPU % (PDH GPU Engine, busiest engine), TCP network rates
+///    (EStats) and Efficiency Mode state (GetProcessInformation).
 ///  • Kill (optionally the whole process tree), SetPriority, SetAffinity,
 ///    Suspend/Resume (NtSuspendProcess — same call Resource Monitor uses),
 ///    Efficiency Mode toggle (EcoQoS), I/O priority and memory priority.
@@ -21,9 +21,11 @@ public sealed class ProcessService : IDisposable
     public readonly record struct Result(bool Ok, string Message);
 
     private static readonly Dictionary<int, double> EmptyGpuMap = new();
+    private static readonly Dictionary<int, (double DownBps, double UpBps)> EmptyTcpMap = new();
 
     private readonly ProcessSampler _sampler = new();
     private readonly GpuCounters? _gpu;
+    private readonly NetworkService? _network;
     private readonly Dictionary<string, string?> _companyCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<int> _suspended = new();
     private readonly Dictionary<int, bool> _ecoState = new();
@@ -34,8 +36,9 @@ public sealed class ProcessService : IDisposable
     // failed queries we stop asking and rely on the state WinSentinel set itself.
     private int _ecoQueryFailures;
 
-    public ProcessService()
+    public ProcessService(NetworkService? network = null)
     {
+        _network = network;
         try { _gpu = new GpuCounters(); }
         catch (Exception ex) { Logger.Error("GPU counters init", ex); }
     }
@@ -55,7 +58,12 @@ public sealed class ProcessService : IDisposable
     public List<ProcessInfo> Snapshot()
     {
         Dictionary<int, double> gpuByPid;
-        lock (_gate) { gpuByPid = _gpu?.Sample() ?? EmptyGpuMap; }
+        IReadOnlyDictionary<int, (double DownBps, double UpBps)> tcpRates;
+        lock (_gate)
+        {
+            gpuByPid = _gpu?.Sample() ?? EmptyGpuMap;
+            tcpRates = _network?.SampleProcessTcpRates() ?? EmptyTcpMap;
+        }
 
         long now = Environment.TickCount64;
         var list = new List<ProcessInfo>(320);
@@ -138,6 +146,13 @@ public sealed class ProcessService : IDisposable
 
                 double? gpuPercent = gpuByPid.TryGetValue(pid, out double g) ? g : null;
 
+                double? netDown = null, netUp = null;
+                if (tcpRates.TryGetValue(pid, out var tcp))
+                {
+                    netDown = tcp.DownBps;
+                    netUp = tcp.UpBps;
+                }
+
                 bool suspended;
                 lock (_gate) { suspended = _suspended.Contains(pid); }
 
@@ -152,6 +167,8 @@ public sealed class ProcessService : IDisposable
                     DiskReadBps = readBps,
                     DiskWriteBps = writeBps,
                     GpuPercent = gpuPercent,
+                    NetDownBps = netDown,
+                    NetUpBps = netUp,
                     Threads = threads,
                     Priority = priority,
                     EcoMode = eco,

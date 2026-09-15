@@ -251,4 +251,157 @@ internal static class NativeMethods
     [DllImport("ntdll.dll")]
     public static extern int NtSetSystemInformation(
         int systemInformationClass, ref int systemInformation, int systemInformationLength);
+
+    // ---------------------------------------------------------------- TCP / UDP connection tables
+
+    public const int AfInet = 2;
+    public const int AfInet6 = 23;
+    public const int TcpTableOwnerPidAll = 5;
+    public const int UdpTableOwnerPid = 1;
+    public const uint ErrorInsufficientBuffer = 122;
+    public const uint ErrorAccessDenied = 5;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MIB_TCPROW_OWNER_PID
+    {
+        public uint dwState;
+        public uint dwLocalAddr;
+        public uint dwLocalPort;
+        public uint dwRemoteAddr;
+        public uint dwRemotePort;
+        public uint dwOwningPid;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MIB_TCP6ROW_OWNER_PID
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)] public byte[] ucLocalAddr;
+        public uint dwLocalScopeId;
+        public uint dwLocalPort;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)] public byte[] ucRemoteAddr;
+        public uint dwRemoteScopeId;
+        public uint dwRemotePort;
+        public uint dwState;
+        public uint dwOwningPid;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MIB_UDPROW_OWNER_PID
+    {
+        public uint dwLocalAddr;
+        public uint dwLocalPort;
+        public uint dwOwningPid;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MIB_UDP6ROW_OWNER_PID
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)] public byte[] ucLocalAddr;
+        public uint dwLocalScopeId;
+        public uint dwLocalPort;
+        public uint dwOwningPid;
+    }
+
+    [DllImport("iphlpapi.dll", SetLastError = true)]
+    public static extern uint GetExtendedTcpTable(
+        IntPtr pTcpTable, ref uint pdwSize, [MarshalAs(UnmanagedType.Bool)] bool bOrder,
+        int ulAf, int tableClass, uint reserved);
+
+    [DllImport("iphlpapi.dll", SetLastError = true)]
+    public static extern uint GetExtendedUdpTable(
+        IntPtr pUdpTable, ref uint pdwSize, [MarshalAs(UnmanagedType.Bool)] bool bOrder,
+        int ulAf, int tableClass, uint reserved);
+
+    /// <summary>TCP connection states (MIB_TCP_STATE), used for the connections list.</summary>
+    public static string TcpStateName(uint state) => state switch
+    {
+        1 => "Closed",
+        2 => "Listen",
+        3 => "SynSent",
+        4 => "SynReceived",
+        5 => "Established",
+        6 => "FinWait1",
+        7 => "FinWait2",
+        8 => "CloseWait",
+        9 => "Closing",
+        10 => "LastAck",
+        11 => "TimeWait",
+        12 => "DeleteTcb",
+        _ => state.ToString()
+    };
+
+    // ---------------------------------------------------------------- TCP extended statistics (EStats)
+    // Enables the per-process TCP byte rates shown in the process table. Enabling collection
+    // requires an elevated process; payload bytes only (no TCP headers), IPv4 + IPv6.
+
+    public const int TcpConnectionEstatsData = 1;
+    public const uint TcpEstatsStateEstablished = 5;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MIB_TCPROW
+    {
+        public uint dwState;
+        public uint dwLocalAddr;
+        public uint dwLocalPort;
+        public uint dwRemoteAddr;
+        public uint dwRemotePort;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MIB_TCP6ROW
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)] public byte[] ucLocalAddr;
+        public uint dwLocalScopeId;
+        public uint dwLocalPort;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)] public byte[] ucRemoteAddr;
+        public uint dwRemoteScopeId;
+        public uint dwRemotePort;
+        public uint dwState;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TCP_ESTATS_DATA_RW_V0
+    {
+        public byte EnableCollection;
+    }
+
+    /// <summary>Read-only dynamic data-transfer counters (tcpestats.h, field order verified).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TCP_ESTATS_DATA_ROD_V0
+    {
+        public ulong DataBytesOut;
+        public ulong DataSegsOut;
+        public ulong DataBytesIn;
+        public ulong DataSegsIn;
+        public ulong SegsOut;
+        public ulong SegsIn;
+        public uint SoftErrors;
+        public uint SoftErrorReason;
+        public uint SndUna;
+        public uint SndNxt;
+        public uint SndMax;
+        public ulong ThruBytesAcked;
+        public uint RcvNxt;
+        public ulong ThruBytesReceived;
+    }
+
+    [DllImport("iphlpapi.dll", SetLastError = true)]
+    public static extern uint SetPerTcpConnectionEStats(
+        ref MIB_TCPROW row, int estatsType, ref TCP_ESTATS_DATA_RW_V0 rw, uint rwVersion, uint rwSize, uint offset);
+
+    [DllImport("iphlpapi.dll", SetLastError = true)]
+    public static extern uint SetPerTcp6ConnectionEStats(
+        ref MIB_TCP6ROW row, int estatsType, ref TCP_ESTATS_DATA_RW_V0 rw, uint rwVersion, uint rwSize, uint offset);
+
+    [DllImport("iphlpapi.dll", SetLastError = true)]
+    public static extern uint GetPerTcpConnectionEStats(
+        ref MIB_TCPROW row, int estatsType, ref byte rw, uint rwVersion, uint rwSize,
+        IntPtr ros, uint rosVersion, uint rosSize,
+        ref TCP_ESTATS_DATA_ROD_V0 rod, uint rodVersion, uint rodSize);
+
+    [DllImport("iphlpapi.dll", SetLastError = true)]
+    public static extern uint GetPerTcp6ConnectionEStats(
+        ref MIB_TCP6ROW row, int estatsType, ref byte rw, uint rwVersion, uint rwSize,
+        IntPtr ros, uint rosVersion, uint rosSize,
+        ref TCP_ESTATS_DATA_ROD_V0 rod, uint rodVersion, uint rodSize);
 }

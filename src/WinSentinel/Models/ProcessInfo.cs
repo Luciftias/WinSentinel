@@ -32,6 +32,12 @@ public sealed class ProcessInfo
     /// <summary>GPU utilisation (busiest engine) 0..100, or null when unavailable.</summary>
     public double? GpuPercent { get; init; }
 
+    /// <summary>TCP download rate (bytes/s) attributed to this process via EStats, or null.</summary>
+    public double? NetDownBps { get; init; }
+
+    /// <summary>TCP upload rate (bytes/s) attributed to this process via EStats, or null.</summary>
+    public double? NetUpBps { get; init; }
+
     public int Threads { get; init; }
 
     /// <summary>Friendly priority class name (e.g. "Normal", "High").</summary>

@@ -31,13 +31,12 @@ public sealed class SystemMonitorService : IDisposable
 
     private readonly DiskCounters _disk = new();
     private readonly GpuCounters _gpu = new();
-    private readonly Dictionary<uint, (uint In, uint Out)> _netPrevious = new();
+    private readonly NetworkService? _network;
+    private readonly TemperatureService? _temperature;
 
     private long _lastPdhSampleMs;
     private double _lastDiskReadBps;
     private double _lastDiskWriteBps;
-    private double _lastNetDownBps;
-    private double _lastNetUpBps;
 
     /// <summary>Fired on the timer's thread-pool thread for every captured sample.</summary>
     public event EventHandler<MetricSample>? SampleUpdated;
@@ -55,8 +54,10 @@ public sealed class SystemMonitorService : IDisposable
     /// <summary>True when the disk rate counters were successfully primed.</summary>
     public bool DiskAvailable => _disk.Available;
 
-    public SystemMonitorService(double intervalMilliseconds = 1000)
+    public SystemMonitorService(double intervalMilliseconds = 1000, NetworkService? network = null, TemperatureService? temperature = null)
     {
+        _network = network;
+        _temperature = temperature;
         _timer = new Timer(Math.Max(250, intervalMilliseconds)) { AutoReset = true };
         _timer.Elapsed += (_, _) => Sample();
     }
@@ -97,9 +98,8 @@ public sealed class SystemMonitorService : IDisposable
                 _gpu.Sample(); // updates LastTotalPercent
             }
 
-            var (netDown, netUp) = ReadNetwork();
-            _lastNetDownBps = netDown;
-            _lastNetUpBps = netUp;
+            var (netDown, netUp) = _network is null ? (0.0, 0.0) : SampleNetwork();
+            var temp = _temperature?.Latest;
 
             var sample = new MetricSample
             {
@@ -112,13 +112,16 @@ public sealed class SystemMonitorService : IDisposable
                 DiskAvailable = _disk.Available && _lastPdhSampleMs > 0,
                 DiskReadBps = _lastDiskReadBps,
                 DiskWriteBps = _lastDiskWriteBps,
-                NetDownBps = _lastNetDownBps,
-                NetUpBps = _lastNetUpBps,
+                NetDownBps = netDown,
+                NetUpBps = netUp,
                 GpuAvailable = _gpu.Available,
                 GpuPercent = _gpu.LastTotalPercent,
                 BatteryPresent = batteryPresent,
                 BatteryPercent = batteryPercent,
-                OnAcPower = onAc
+                OnAcPower = onAc,
+                TempAvailable = temp is not null,
+                TempCelsius = temp?.Celsius ?? 0,
+                TempZone = temp?.Zone ?? string.Empty
             };
 
             lock (_gate)
@@ -218,73 +221,20 @@ public sealed class SystemMonitorService : IDisposable
         }
     }
 
-    // ---------------------------------------------------------------- network
+    // ---------------------------------------------------------------- network (delegated)
 
-    private (double downBps, double upBps) ReadNetwork()
+    /// <summary>Delegates adapter sampling to the shared NetworkService (one sample per tick).</summary>
+    private (double downBps, double upBps) SampleNetwork()
     {
-        uint size = 0;
-        _ = NativeMethods.GetIfTable(IntPtr.Zero, ref size, false);
-        if (size == 0 || size > 4 * 1024 * 1024) return (0, 0);
-
-        IntPtr buffer = Marshal.AllocHGlobal((int)size);
         try
         {
-            if (NativeMethods.GetIfTable(buffer, ref size, false) != 0) return (0, 0);
-
-            uint count = (uint)Marshal.ReadInt32(buffer);
-            int rowSize = Marshal.SizeOf<NativeMethods.MIB_IFROW>();
-            if (rowSize != 860 || count > 4096) return (0, 0); // layout guard — bail rather than misread
-
-            ulong downDelta = 0, upDelta = 0;
-            var seen = new HashSet<uint>(64);
-            var uniqueDeltas = new HashSet<(uint In, uint Out)>(32);
-
-            for (uint i = 0; i < count; i++)
-            {
-                var row = Marshal.PtrToStructure<NativeMethods.MIB_IFROW>(buffer + 4 + (int)i * rowSize);
-                if (row.dwType == NativeMethods.IfTypeSoftwareLoopback) continue;
-
-                seen.Add(row.dwIndex);
-                if (_netPrevious.TryGetValue(row.dwIndex, out var prev))
-                {
-                    uint deltaIn = unchecked(row.dwInOctets - prev.In);
-                    uint deltaOut = unchecked(row.dwOutOctets - prev.Out);
-                    if (deltaIn != 0 || deltaOut != 0)
-                    {
-                        // Windows exposes the same physical traffic through several alias rows
-                        // (e.g. multiple \DEVICE\TCPIP_{GUID} entries with identical counters).
-                        // Collapsing identical delta pairs counts each flow exactly once.
-                        if (uniqueDeltas.Add((deltaIn, deltaOut)))
-                        {
-                            downDelta += deltaIn;
-                            upDelta += deltaOut;
-                        }
-                    }
-                }
-                _netPrevious[row.dwIndex] = (row.dwInOctets, row.dwOutOctets);
-            }
-
-            // Drop interfaces that disappeared.
-            if (_netPrevious.Count > seen.Count + 8)
-            {
-                List<uint>? dead = null;
-                foreach (var idx in _netPrevious.Keys)
-                    if (!seen.Contains(idx)) (dead ??= new List<uint>()).Add(idx);
-                if (dead is not null)
-                    foreach (var idx in dead) _netPrevious.Remove(idx);
-            }
-
-            // Octet counters are cumulative; the shown value is the delta since the previous
-            // tick, i.e. bytes/sec at the 1 s cadence. Networking is best-effort telemetry.
-            return (downDelta, upDelta);
+            _network!.Sample();
+            return _network.LastTotals;
         }
-        catch
+        catch (Exception ex)
         {
+            Logger.Error("Network sample", ex);
             return (0, 0);
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(buffer);
         }
     }
 

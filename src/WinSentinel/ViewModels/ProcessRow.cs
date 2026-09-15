@@ -1,7 +1,6 @@
 using WinSentinel.Models;
 
 namespace WinSentinel.ViewModels;
-
 /// <summary>
 /// Mutable row view-model for the process table. Rows are created once per PID and updated in
 /// place on every snapshot so selection, sorting and scroll position survive refreshes.
@@ -51,6 +50,25 @@ public sealed class ProcessRow : ViewModelBase
     }
     public string GpuDisplay => GpuPercent is double g && g > 0 ? $"{g:0.0}%" : "—";
 
+    private double? _netDownBps;
+    public double? NetDownBps
+    {
+        get => _netDownBps;
+        private set { if (SetField(ref _netDownBps, value)) { OnPropertyChanged(nameof(NetDisplay)); OnPropertyChanged(nameof(NetTotalBps)); } }
+    }
+
+    private double? _netUpBps;
+    public double? NetUpBps
+    {
+        get => _netUpBps;
+        private set { if (SetField(ref _netUpBps, value)) { OnPropertyChanged(nameof(NetDisplay)); OnPropertyChanged(nameof(NetTotalBps)); } }
+    }
+
+    /// <summary>Combined TCP rate (down + up) for sorting.</summary>
+    public double? NetTotalBps => NetDownBps is null && NetUpBps is null ? null : (NetDownBps ?? 0) + (NetUpBps ?? 0);
+
+    public string NetDisplay => NetTotalBps is double t && t > 0 ? FormatRate(t) : "—";
+
     private int _threads;
     public int Threads { get => _threads; private set => SetField(ref _threads, value); }
 
@@ -99,6 +117,8 @@ public sealed class ProcessRow : ViewModelBase
             ? null
             : (info.DiskReadBps ?? 0) + (info.DiskWriteBps ?? 0);
         GpuPercent = info.GpuPercent;
+        NetDownBps = info.NetDownBps;
+        NetUpBps = info.NetUpBps;
         Threads = info.Threads;
         Priority = info.Priority;
         EcoMode = info.EcoMode;
@@ -118,12 +138,5 @@ public sealed class ProcessRow : ViewModelBase
     }
 
     /// <summary>Human-readable byte rate (used by the process table and the dashboard cards).</summary>
-    public static string FormatRate(double bytesPerSecond) => bytesPerSecond switch
-    {
-        >= 1_073_741_824 => $"{bytesPerSecond / 1_073_741_824:0.0} GB/s",
-        >= 1_048_576 => $"{bytesPerSecond / 1_048_576:0.0} MB/s",
-        >= 1024 => $"{bytesPerSecond / 1024:0} KB/s",
-        > 0 => $"{bytesPerSecond:0} B/s",
-        _ => "0"
-    };
+    public static string FormatRate(double bytesPerSecond) => ByteFormat.Rate(bytesPerSecond);
 }

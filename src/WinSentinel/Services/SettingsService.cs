@@ -103,8 +103,12 @@ public sealed class SettingsService
         s.BalloonOpacity = Math.Clamp(s.BalloonOpacity, 0.3, 1.0);
         s.AlertCpuPercent = Math.Clamp(s.AlertCpuPercent, 50, 100);
         s.AlertRamPercent = Math.Clamp(s.AlertRamPercent, 50, 100);
+        s.AlertTempCelsius = Math.Clamp(s.AlertTempCelsius, 50, 110);
         s.AlertSustainSeconds = Math.Clamp(s.AlertSustainSeconds, 3, 120);
         s.AlertCooldownMinutes = Math.Clamp(s.AlertCooldownMinutes, 1, 120);
+        s.SpikeSensitivity = Math.Clamp(s.SpikeSensitivity, 1.5, 6.0);
+        s.RunawayCpuPercent = Math.Clamp(s.RunawayCpuPercent, 30, 100);
+        s.RunawaySustainSeconds = Math.Clamp(s.RunawaySustainSeconds, 5, 300);
         if (s.Theme is not ("Dark" or "Light" or "System")) s.Theme = "Dark";
         if (s.Accent is not ("Cyan" or "Blue" or "Violet" or "Green" or "Orange" or "Rose" or "System")) s.Accent = "Cyan";
         return s;

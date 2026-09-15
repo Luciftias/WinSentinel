@@ -23,6 +23,8 @@ public partial class App : Application
     private ThemeManager? _theme;
     private SystemMonitorService? _monitor;
     private ProcessService? _processes;
+    private NetworkService? _network;
+    private TemperatureService? _temperature;
     private MemoryOptimizer? _memory;
     private StartupManager? _startup;
     private AlertService? _alerts;
@@ -55,12 +57,15 @@ public partial class App : Application
         _appliedAccent = _settings.Current.Accent;
 
         // Core services
-        _monitor = new SystemMonitorService(_settings.Current.SampleIntervalMs);
-        _processes = new ProcessService();
+        _network = new NetworkService();
+        _temperature = new TemperatureService();
+        _monitor = new SystemMonitorService(_settings.Current.SampleIntervalMs, _network, _temperature);
+        _processes = new ProcessService(_network);
         _memory = new MemoryOptimizer();
         _startup = new StartupManager();
         _alerts = new AlertService(_settings.Current);
         _monitor.SampleUpdated += (_, sample) => _alerts.OnSample(sample);
+        _temperature.Start();
 
         // Tray
         _tray = new TrayIconManager(_monitor)
@@ -134,12 +139,12 @@ public partial class App : Application
 
     private void ShowDashboard(bool navigateToSettings = false)
     {
-        if (_monitor is null || _settings is null || _processes is null ||
-            _memory is null || _startup is null || _theme is null || _alerts is null) return;
+        if (_monitor is null || _settings is null || _processes is null || _memory is null ||
+            _startup is null || _theme is null || _alerts is null || _network is null) return;
 
         if (_dashboard is null)
         {
-            var vm = new DashboardViewModel(_monitor, _processes, _memory, _startup, _settings, _theme, _alerts);
+            var vm = new DashboardViewModel(_monitor, _processes, _memory, _startup, _network, _settings, _theme, _alerts);
             var window = new DashboardWindow { DataContext = vm };
             window.Closed += (_, _) =>
             {
@@ -226,6 +231,8 @@ public partial class App : Application
         _tray?.Dispose();
         _monitor?.Dispose();
         _processes?.Dispose();
+        _temperature?.Dispose();
+        _network?.Dispose();
         _theme?.Dispose();
         _balloon?.Close();
         _instanceMutex?.Dispose();

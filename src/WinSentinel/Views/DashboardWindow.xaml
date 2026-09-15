@@ -215,6 +215,11 @@
                                         <TextBlock Text="BATTERY" Style="{StaticResource CardTitle}"/>
                                         <TextBlock Text="{Binding BatteryDetail}" Style="{StaticResource BigMetric}" FontSize="15"/>
                                     </StackPanel>
+                                    <StackPanel Visibility="{Binding TempAvailable, Converter={StaticResource BoolToVis}}" Margin="0,10,0,0">
+                                        <TextBlock Text="TEMPERATURE" Style="{StaticResource CardTitle}"/>
+                                        <TextBlock Text="{Binding TempDetail}" Style="{StaticResource BigMetric}" FontSize="15"
+                                                   Foreground="{DynamicResource MetricTempBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -366,13 +371,14 @@
                         </DataGrid.ContextMenu>
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Process" Binding="{Binding Name}" Width="*" SortMemberPath="Name"/>
-                            <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="70" SortMemberPath="Pid"/>
-                            <DataGridTextColumn Header="CPU" Binding="{Binding CpuDisplay}" Width="76" SortMemberPath="CpuPercent"/>
-                            <DataGridTextColumn Header="Memory" Binding="{Binding MemoryDisplay}" Width="100" SortMemberPath="MemoryMB"/>
-                            <DataGridTextColumn Header="Disk" Binding="{Binding DiskDisplay}" Width="96" SortMemberPath="DiskBps"/>
-                            <DataGridTextColumn Header="GPU" Binding="{Binding GpuDisplay}" Width="72" SortMemberPath="GpuPercent"/>
-                            <DataGridTextColumn Header="Threads" Binding="{Binding Threads}" Width="76" SortMemberPath="Threads"/>
-                            <DataGridTextColumn Header="Priority" Binding="{Binding Priority}" Width="104" SortMemberPath="Priority"/>
+                            <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="58" SortMemberPath="Pid"/>
+                            <DataGridTextColumn Header="CPU" Binding="{Binding CpuDisplay}" Width="66" SortMemberPath="CpuPercent"/>
+                            <DataGridTextColumn Header="Memory" Binding="{Binding MemoryDisplay}" Width="92" SortMemberPath="MemoryMB"/>
+                            <DataGridTextColumn Header="Disk" Binding="{Binding DiskDisplay}" Width="86" SortMemberPath="DiskBps"/>
+                            <DataGridTextColumn Header="NET" Binding="{Binding NetDisplay}" Width="86" SortMemberPath="NetTotalBps"/>
+                            <DataGridTextColumn Header="GPU" Binding="{Binding GpuDisplay}" Width="62" SortMemberPath="GpuPercent"/>
+                            <DataGridTextColumn Header="Threads" Binding="{Binding Threads}" Width="64" SortMemberPath="Threads"/>
+                            <DataGridTextColumn Header="Priority" Binding="{Binding Priority}" Width="94" SortMemberPath="Priority"/>
                             <DataGridTemplateColumn Header="ECO" Width="58" SortMemberPath="IsEco">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
@@ -396,6 +402,93 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <!-- ───────────────────────── Network ───────────────────────── -->
+            <TabItem Header="Network" Style="{StaticResource NavTabItem}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Style="{StaticResource Card}" Padding="16,14" Margin="0,0,0,12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="NETWORK" Style="{StaticResource CardTitle}"/>
+                                <TextBlock Text="{Binding NetDetail}" Style="{StaticResource BigMetric}" FontSize="18" Margin="0,6,0,0"/>
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Style="{StaticResource Caption}" TextWrapping="Wrap" MaxWidth="380" Margin="18,0,0,0"
+                                       Text="Adapter totals from the octet counters (alias rows de-duplicated). Per-process NET figures count TCP payload only, are enabled per connection, need elevation, and show '—' until the first delta. UDP traffic is not attributed per process."/>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="1" Style="{StaticResource Card}" Padding="16,12" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="ADAPTERS" Style="{StaticResource CardTitle}" Margin="0,0,0,8"/>
+                            <DataGrid Style="{StaticResource AppDataGrid}" ItemsSource="{Binding Adapters}" MaxHeight="170" RowHeight="26">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Adapter" Binding="{Binding Name}" Width="*"/>
+                                    <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="86"/>
+                                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="76"/>
+                                    <DataGridTextColumn Header="Link" Binding="{Binding LinkDisplay}" Width="86"/>
+                                    <DataGridTextColumn Header="Down" Binding="{Binding DownDisplay}" Width="96"/>
+                                    <DataGridTextColumn Header="Up" Binding="{Binding UpDisplay}" Width="96"/>
+                                    <DataGridTextColumn Header="Total In / Out" Binding="{Binding TotalDisplay}" Width="150"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <Grid Grid.Row="2" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="CONNECTIONS" Style="{StaticResource CardTitle}" VerticalAlignment="Center" Margin="2,0,14,0"/>
+                        <Grid Grid.Column="1" Width="240" Margin="0,0,14,0">
+                            <TextBox x:Name="ConnectionSearchBox" Text="{Binding ConnectionSearch, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Filter process, PID, address…" IsHitTestVisible="False" FontSize="12"
+                                       Foreground="{DynamicResource SubtleBrush}" Margin="10,0,0,0" VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=ConnectionSearchBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                        <TextBlock Grid.Column="3" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,12,0">
+                            <Run Text="{Binding ConnectionCount, Mode=OneWay}"/><Run Text=" endpoints"/>
+                        </TextBlock>
+                        <Button Grid.Column="4" Content="Refresh" Style="{StaticResource SmallAction}" Command="{Binding RefreshConnectionsCommand}"/>
+                    </Grid>
+
+                    <DataGrid Grid.Row="3" Style="{StaticResource AppDataGrid}"
+                              ItemsSource="{Binding ConnectionView}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="*"/>
+                            <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="64"/>
+                            <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="64"/>
+                            <DataGridTextColumn Header="State" Binding="{Binding State}" Width="104"/>
+                            <DataGridTextColumn Header="Local" Binding="{Binding Local}" Width="220"/>
+                            <DataGridTextColumn Header="Remote" Binding="{Binding Remote}" Width="240"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
@@ -449,6 +542,135 @@
                         </Grid>
                     </Border>
                 </Grid>
+            </TabItem>
+
+            <!-- ───────────────────────── Alerts ───────────────────────── -->
+            <TabItem Header="Alerts" Style="{StaticResource NavTabItem}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                    <StackPanel>
+
+                        <Border Style="{StaticResource Card}" Padding="18,14" Margin="0,0,0,14">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Anomaly detection" Style="{StaticResource H2}"/>
+                                    <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,16,0"
+                                               Text="Three detectors run side by side: sustained thresholds (CPU / RAM / temperature), statistical spikes (z-score against the last ~2 minutes, for CPU / disk / network) and runaway processes. Every alert is read-only, rate-limited per kind, mirrored to a tray notification and listed below."/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <ToggleButton Style="{StaticResource SwitchToggle}" IsChecked="{Binding AlertsEnabled}"
+                                                  Margin="0,0,16,0" ToolTip="Master switch for all detectors"/>
+                                    <Button Content="Test alert" Style="{StaticResource SmallAction}" Command="{Binding TestAlertCommand}"/>
+                                    <Button Content="Clear history" Style="{StaticResource GhostButton}" Margin="0"
+                                            Command="{Binding ClearAlertsCommand}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}" Padding="18,14" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Sustained thresholds" Style="{StaticResource H2}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                    <TextBlock Text="CPU ≥" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <Slider Width="150" Minimum="50" Maximum="100" Value="{Binding AlertCpuPercent}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding AlertCpuPercent, StringFormat={}{0:0}%}" Style="{StaticResource Label}"
+                                               VerticalAlignment="Center" Margin="8,0,24,0" MinWidth="36"/>
+                                    <TextBlock Text="RAM ≥" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <Slider Width="150" Minimum="50" Maximum="100" Value="{Binding AlertRamPercent}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding AlertRamPercent, StringFormat={}{0:0}%}" Style="{StaticResource Label}"
+                                               VerticalAlignment="Center" Margin="8,0,24,0" MinWidth="36"/>
+                                    <TextBlock Text="Temp ≥" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <Slider Width="150" Minimum="50" Maximum="110" Value="{Binding AlertTempCelsius}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding AlertTempCelsius, StringFormat={}{0:0} °C}" Style="{StaticResource Label}"
+                                               VerticalAlignment="Center" Margin="8,0,0,0" MinWidth="44"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <TextBlock Text="Sustained for" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <Slider Width="150" Minimum="3" Maximum="60" Value="{Binding AlertSustainSeconds}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding AlertSustainSeconds, StringFormat={}{0:0} s}" Style="{StaticResource Label}"
+                                               VerticalAlignment="Center" Margin="8,0,24,0" MinWidth="36"/>
+                                    <TextBlock Text="Cooldown" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <Slider Width="150" Minimum="1" Maximum="30" Value="{Binding AlertCooldownMinutes}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding AlertCooldownMinutes, StringFormat={}{0:0} min}" Style="{StaticResource Label}"
+                                               VerticalAlignment="Center" Margin="8,0,0,0" MinWidth="44"/>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,10,0,0" TextWrapping="Wrap"
+                                           Text="Temperature alerts apply only when the firmware exposes ACPI thermal zones (see Overview)."/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}" Padding="18,14" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Spikes &amp; runaway processes" Style="{StaticResource H2}"/>
+                                <CheckBox Content="Alert on unusual spikes (CPU / disk activity / network traffic)" IsChecked="{Binding SpikeAlertsEnabled}" Margin="0,12,0,0"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <TextBlock Text="Sensitivity" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <Slider Width="200" Minimum="1.5" Maximum="6" Value="{Binding SpikeSensitivity}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding SpikeSensitivity, StringFormat={}{0:0.0} σ above the rolling baseline}" Style="{StaticResource Label}"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                </StackPanel>
+                                <CheckBox Content="Alert when one process runs away with the CPU" IsChecked="{Binding RunawayAlertsEnabled}" Margin="0,16,0,0"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <TextBlock Text="Process CPU ≥" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <Slider Width="160" Minimum="30" Maximum="100" Value="{Binding RunawayCpuPercent}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding RunawayCpuPercent, StringFormat={}{0:0}%}" Style="{StaticResource Label}"
+                                               VerticalAlignment="Center" Margin="10,0,24,0" MinWidth="40"/>
+                                    <TextBlock Text="for at least" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <Slider Width="160" Minimum="5" Maximum="120" Value="{Binding RunawaySustainSeconds}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding RunawaySustainSeconds, StringFormat={}{0:0} s}" Style="{StaticResource Label}"
+                                               VerticalAlignment="Center" Margin="10,0,0,0" MinWidth="40"/>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,10,0,0" TextWrapping="Wrap"
+                                           Text="Runaway detection uses the live process table, so it runs while the dashboard window is open."/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}" Padding="18,14">
+                            <StackPanel>
+                                <TextBlock Text="Recent alerts" Style="{StaticResource H2}" Margin="0,0,0,6"/>
+                                <TextBlock Text="No alerts yet. Detection is quiet until something actually looks unusual."
+                                           Foreground="{DynamicResource SubtleBrush}" FontSize="12" Margin="0,6,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding AlertsHistory.Count}" Value="0">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <ItemsControl ItemsSource="{Binding AlertsHistory}" Margin="0,6,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,5">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="72"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding TimeDisplay}" FontFamily="{DynamicResource MonoFont}"
+                                                           FontSize="11" Foreground="{DynamicResource SubtleBrush}" VerticalAlignment="Top"/>
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Text="{Binding Title}" Foreground="{DynamicResource TextBrush}"
+                                                               FontWeight="SemiBold" FontSize="12"/>
+                                                    <TextBlock Text="{Binding Message}" Foreground="{DynamicResource SubtleBrush}"
+                                                               FontSize="12" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Style="{StaticResource Caption}" Margin="2,12,0,4" TextWrapping="Wrap"
+                                   Text="Honest note: these are heuristic detectors tuned for usefulness, not a statistical guarantee. Spike detection needs roughly half a minute of baseline after launch before it can judge what is 'unusual'."/>
+                    </StackPanel>
+                </ScrollViewer>
             </TabItem>
 
             <!-- ───────────────────────── Settings ───────────────────────── -->
@@ -533,37 +755,6 @@
                                             Command="{Binding ResetBalloonPositionCommand}"/>
                                 </Grid>
                                 <CheckBox Content="Disk row" IsChecked="{Binding BalloonShowDisk}" Margin="0,10,0,0"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Alerts -->
-                        <Border Style="{StaticResource Card}" Padding="18,14" Margin="0,0,0,14">
-                            <StackPanel>
-                                <TextBlock Text="Resource alerts" Style="{StaticResource H2}"/>
-                                <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,12"
-                                           Text="A tray alert fires when CPU or memory stays above your threshold for the chosen duration. Alerts only inform — they never change system state. Repeated alerts of the same kind are rate-limited."/>
-                                <StackPanel Orientation="Horizontal">
-                                    <CheckBox Content="Enable alerts" IsChecked="{Binding AlertsEnabled}" VerticalAlignment="Center" Margin="0,0,24,0"/>
-                                    <TextBlock Text="CPU ≥" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                    <Slider Width="150" Minimum="50" Maximum="100" Value="{Binding AlertCpuPercent}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding AlertCpuPercent, StringFormat={}{0:0}%}" Style="{StaticResource Label}"
-                                               VerticalAlignment="Center" Margin="8,0,24,0" MinWidth="36"/>
-                                    <TextBlock Text="RAM ≥" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                    <Slider Width="150" Minimum="50" Maximum="100" Value="{Binding AlertRamPercent}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding AlertRamPercent, StringFormat={}{0:0}%}" Style="{StaticResource Label}"
-                                               VerticalAlignment="Center" Margin="8,0,0,0" MinWidth="36"/>
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                    <TextBlock Text="Sustained for" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                    <Slider Width="150" Minimum="3" Maximum="60" Value="{Binding AlertSustainSeconds}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding AlertSustainSeconds, StringFormat={}{0:0} s}" Style="{StaticResource Label}"
-                                               VerticalAlignment="Center" Margin="8,0,24,0" MinWidth="36"/>
-                                    <TextBlock Text="Cooldown" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                    <Slider Width="150" Minimum="1" Maximum="30" Value="{Binding AlertCooldownMinutes}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding AlertCooldownMinutes, StringFormat={}{0:0} min}" Style="{StaticResource Label}"
-                                               VerticalAlignment="Center" Margin="8,0,24,0" MinWidth="44"/>
-                                    <Button Content="Test alert" Style="{StaticResource SmallAction}" Command="{Binding TestAlertCommand}"/>
-                                </StackPanel>
                             </StackPanel>
                         </Border>
 

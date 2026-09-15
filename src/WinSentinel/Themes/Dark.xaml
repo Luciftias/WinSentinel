@@ -32,6 +32,7 @@
     <Color x:Key="MetricGpuColor">#FF8B5CF6</Color>
     <Color x:Key="MetricNetDownColor">#FF2EA043</Color>
     <Color x:Key="MetricNetUpColor">#FF3B82F6</Color>
+    <Color x:Key="MetricTempColor">#FFEF6C5B</Color>
 
     <SolidColorBrush x:Key="BgBrush"           Color="{StaticResource BgColor}"/>
     <SolidColorBrush x:Key="PanelBrush"        Color="{StaticResource PanelColor}"/>
@@ -51,6 +52,7 @@
     <SolidColorBrush x:Key="MetricGpuBrush"    Color="{StaticResource MetricGpuColor}"/>
     <SolidColorBrush x:Key="MetricNetDownBrush" Color="{StaticResource MetricNetDownColor}"/>
     <SolidColorBrush x:Key="MetricNetUpBrush"  Color="{StaticResource MetricNetUpColor}"/>
+    <SolidColorBrush x:Key="MetricTempBrush"   Color="{StaticResource MetricTempColor}"/>
 
     <!-- Translucent status fills -->
     <SolidColorBrush x:Key="DangerFillBrush"   Color="#33F85149"/>
