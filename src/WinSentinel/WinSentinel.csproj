@@ -11,7 +11,7 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AssemblyName>WinSentinel</AssemblyName>
     <RootNamespace>WinSentinel</RootNamespace>
-    <Version>2.1.0</Version>
+    <Version>2.2.0</Version>
     <Authors>WinSentinel</Authors>
     <Product>WinSentinel</Product>
     <Description>Floating Windows 10/11 system monitor &amp; optimizer — CPU/RAM/GPU/disk/network gauges, process control (Efficiency Mode, suspend, priorities), startup manager, themes. No third-party runtime dependencies.</Description>
@@ -57,6 +57,10 @@
 
   <ItemGroup>
     <PackageReference Include="System.Management" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WinSentinel.Abstractions\WinSentinel.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

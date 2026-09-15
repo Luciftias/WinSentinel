@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Plugin contracts for WinSentinel. Plugins compile against this assembly; the host shares its
+    single loaded instance with every plugin (AssemblyLoadContext fallback) so types unify.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>WinSentinel.Abstractions</AssemblyName>
+    <RootNamespace>WinSentinel.Abstractions</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>WinSentinel</Authors>
+    <Description>Plugin contracts for WinSentinel — implement IWinSentinelPlugin to add metrics and commands.</Description>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>

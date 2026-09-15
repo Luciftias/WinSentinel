@@ -38,9 +38,10 @@ startup programs — wrapped in a themed WPF dashboard.
 > **WinSentinel 2.x** is a deep upgrade of the original tray widget: per-process CPU / disk / GPU /
 > TCP, Efficiency Mode, suspend/resume, I/O + memory priorities, full startup management, themes,
 > a network explorer with per-process TCP attribution (TCP extended statistics), ACPI temperature
-> monitoring, and a three-family anomaly engine (sustained thresholds, z-score spikes, runaway
-> processes) — on **.NET 10 LTS** (.NET 8 reached end of support 2026-11-10).
-> Everything below is verified against the source tree at v2.1.0.
+> monitoring, a three-family anomaly engine (sustained thresholds, z-score spikes, runaway
+> processes) and an **in-process plugin system** (`WinSentinel.Abstractions`) — on **.NET 10 LTS**
+> (.NET 8 reached end of support 2026-11-10).
+> Everything below is verified against the source tree at v2.2.0.
 
 <details>
 <summary><strong>What's new in 2.0 — at a glance</strong> (click to expand)</summary>
@@ -114,6 +115,11 @@ WinSentinel
 │                            thresholds, z-score spikes (CPU/disk/network), runaway
 │                            processes. Rate-limited, read-only, tray-notified, logged
 │                            to an in-app history.
+├── Plugins                  Drop plugin DLLs into %AppData%\WinSentinel\plugins.
+│                            Plugin metrics appear on the Overview, commands in the
+│                            tray "Plugins" menu and on the Settings page. Loaded
+│                            in-process (AssemblyLoadContext), error-isolated, with
+│                            best-effort reload. Contracts: WinSentinel.Abstractions.
 └── Dashboard (sidebar nav)
     ├── Overview             4 live gauges (CPU/RAM/GPU + disk activity),
     │                        auto-scaling sparklines, network down/up graphs,
@@ -191,6 +197,32 @@ the per-user / all-users Startup folders — and merges Explorer's `StartupAppro
 - **Add** a new HKCU `Run` entry
 - HKLM entries are surfaced for visibility and **never modified**
 
+### Plugin system
+
+Third-party extensions without forking the app — two extension points, one contract assembly
+(`WinSentinel.Abstractions`):
+
+- **Metrics** — `IPluginMetric.Sample()` runs on a background cadence (~5 s); values show up in a
+  **PLUGIN METRICS** card on the Overview. `IsAvailable` and `null` are first-class: absent hardware
+  or offline checks simply show nothing (or an `error` chip) instead of fake numbers.
+- **Commands** — `IPluginCommand` appears in the tray **Plugins** submenu and on the Settings page,
+  and receives the dashboard's current process selection through `IPluginCommandContext`.
+
+Engineering guarantees:
+
+| Concern | Behaviour |
+|---------|-----------|
+| Loading | Every `*.dll` in the plugins folder (plus one subfolder level) loads into its own **collectible `AssemblyLoadContext`**; the contract assembly is shared with the host so types unify |
+| Error isolation | Load/initialize/sample/command exceptions are caught, attributed and logged (metric errors rate-limited to once per 5 min) — a bad plugin is marked **Failed** and never takes the app down |
+| Reload | Settings → Plugins → **Reload**: shuts plugins down, unloads contexts, rescans; a file still locked by the OS is reported, not crashed on |
+| Data | Each plugin gets a private data directory + `settings.json` path under `%AppData%\WinSentinel\plugins\{id}\` |
+
+> [!WARNING]
+> Plugins run **in-process with the same administrator privileges as WinSentinel**. There is no
+> sandbox — that is the honest trade-off of this design. Only install plugins you trust, and review
+> their source first. The sample plugin (`src/WinSentinel.Plugin.Example`) shows both extension
+> points in ~150 lines.
+
 ### Experience
 
 - Floating balloon: always-on-top, frameless, translucent, **draggable with remembered position**
@@ -244,6 +276,8 @@ the per-user / all-users Startup folders — and merges Explorer's `StartupAppro
 | Per-process TCP rate | Table (NET column) | `Set/Get[PerTcp6]ConnectionEStats` (elevated, payload only) |
 | Connection explorer | Network page | `GetExtendedTcpTable` / `GetExtendedUdpTable` (IPv4 + IPv6) |
 | Adapter stats | Network page | `GetIfTable` + registry/WMI friendly-name resolution |
+| Plugin metrics | Overview card | Third-party DLLs through `PluginHost` (collectible ALC) |
+| Plugin commands | Tray "Plugins" menu + Settings | `IPluginCommand` with error isolation |
 | Themes / accents | Settings tab | Runtime dictionary swap + DWM registry |
 
 ---
@@ -556,6 +590,7 @@ gitGraph
 | Charts | Custom controls | `CircularGauge`, `Sparkline` — owner-drawn in `OnRender`, zero dependencies |
 | Interop | P/Invoke + WMI | kernel32 · psapi · ntdll · powrprof · iphlpapi · pdh declared in one file; `System.Management` for WMI sensors |
 | WMI | `System.Management` (Microsoft, MIT) | **The only NuGet package** — ACPI thermal zones + adapter friendly names |
+| Plugins | `AssemblyLoadContext` (collectible) | In-process plugin host; the contract assembly `WinSentinel.Abstractions` is shared with plugins for type identity |
 | Settings | `System.Text.Json` | Debounced save, sanitized load |
 | Packaging | Single-file self-contained publish | `PublishSingleFile` + `IncludeNativeLibrariesForSelfExtract` |
 
@@ -583,10 +618,13 @@ gitGraph
 WinSentinel/
 ├── WinSentinel.sln
 ├── README.md
+├── LICENSE
 ├── .gitignore
 └── src/
+    ├── WinSentinel.Abstractions/    Plugin contracts (net10.0) — reference to build plugins
+    ├── WinSentinel.Plugin.Example/  Sample plugin: metrics + commands, ~150 lines
     └── WinSentinel/
-        ├── WinSentinel.csproj           net10.0-windows · WinExe · v2.1.0
+        ├── WinSentinel.csproj           net10.0-windows · WinExe · v2.2.0
         ├── app.manifest                 requireAdministrator + PerMonitorV2 DPI + longPathAware
         ├── App.xaml / App.xaml.cs       Bootstrap: settings → theme → services → tray/balloon
         ├── Assets/                      app.ico · tray.ico · logo.png
@@ -608,6 +646,7 @@ WinSentinel/
         │   ├── ProcessSampler.cs        Delta engine for per-process rates
         │   ├── NetworkService.cs        Adapters · connection tables · per-process TCP (EStats)
         │   ├── TemperatureService.cs    ACPI thermal zones via WMI (back-off when absent)
+        │   ├── PluginHost.cs            Plugin discovery/loading (collectible ALC), sampling, commands
         │   ├── MemoryOptimizer.cs       Trim all / single, standby purge
         │   ├── StartupManager.cs        Run/RunOnce/folders + enable/disable/add/remove
         │   ├── AlertService.cs          Threshold + spike + runaway detectors, history
@@ -618,6 +657,7 @@ WinSentinel/
         │   ├── ViewModelBase.cs         INotifyPropertyChanged base
         │   ├── RelayCommand.cs          ICommand relay (CommandManager requery)
         │   ├── ProcessRow.cs            In-place-updated table row VM + search matching
+        │   ├── PluginRow.cs             Plugin + plugin-command rows for the Settings card
         │   ├── BalloonViewModel.cs      Balloon data + visibility/opacity/position
         │   └── DashboardViewModel.cs    Gauges, table, network, startup, alerts, settings
         ├── Controls/
@@ -749,6 +789,18 @@ diffed by PID (no clear-and-refill — selection/scroll survive); the table refr
 cadence and only while the dashboard is open. The tray tooltip is marshalled and coalesced. A
 single-instance mutex keeps duplicates out; crash handlers log to `%AppData%\WinSentinel\winsentinel.log`.
 
+### Plugin system — in-process, isolated, reloadable
+
+`PluginHost` scans `%AppData%\WinSentinel\plugins` (root DLLs plus one subfolder level), loads every
+assembly into its **own collectible `AssemblyLoadContext`**, and shares the host's
+`WinSentinel.Abstractions` instance so contract types unify. Discovery, initialization, metric
+sampling and command execution are each wrapped in isolation — a plugin that misbehaves is marked
+**Failed** with its error (shown in Settings → Plugins) while the app keeps running; metric failures
+are rate-limited in the log. Reload shuts plugins down, unloads contexts and rescans, reporting any
+DLL still locked by the OS instead of crashing. Plugin metrics are sampled on a background ~5 s
+cadence; plugin commands surface in the tray submenu and Settings, receiving the dashboard's
+selected process as context.
+
 ---
 
 ## Build and run
@@ -826,6 +878,8 @@ via the UI thread only (NotifyIcon is not thread-safe).
 - Memory trims and standby purges are presented as tuning aids with their trade-offs in the UI.
 - Startup edits are confined to per-user locations and are fully reversible (disable ≠ delete).
 - Destructive actions require explicit confirmation by default (both configurable in Settings).
+- Plugins run in-process with the same administrator privileges — load, sample and command failures
+  are isolated and surfaced, but plugin code itself is trusted code: only install what you trust.
 - Every failure path lands in a log rather than a crash.
 
 This is a defensive, user-facing utility for monitoring and tuning **your own machine**.
@@ -875,6 +929,8 @@ invalid state.
 | NET column shows `—` for every process | Per-process TCP (EStats) could not be enabled | Run elevated; rates also appear one refresh after a connection starts (first delta) |
 | Temperature card missing | Firmware exposes no ACPI thermal zones (common on VMs) | Expected — the service backs off and logs one line; nothing is faked |
 | Alerts feel noisy or silent | Spike sensitivity / cooldown tuning | Alerts page → sensitivity (σ), cooldown and thresholds are all adjustable live |
+| Plugin status shows Failed | Bad image, incompatible contract, or locked file | Hover the status chip for the error; check the log; the host keeps running |
+| Plugin loaded but no metrics | Plugin registered none (or `IsAvailable` is false) | Re-read the plugin's contract usage; Reload from Settings → Plugins |
 | "WinSentinel is already running" at launch | Single-instance mutex | Check the system tray |
 | Balloon disappeared after a monitor change | Position clamped into current virtual screen | Tray → Show Floating Balloon, or Settings → Reset position |
 | App crashed once and recovered | Crash handler logged it | Read `%AppData%\WinSentinel\winsentinel.log` |
@@ -922,5 +978,5 @@ relying on it in production.
 ---
 
 <div align="center">
-<sub>WinSentinel 2.1 · C# / .NET 10 / WPF · MVVM · one Microsoft package (`System.Management`) · verified on Windows 10 22H2</sub>
+<sub>WinSentinel 2.2 · C# / .NET 10 / WPF · MVVM · one Microsoft package (`System.Management`) · plugin system · verified on Windows 10 22H2</sub>
 </div>

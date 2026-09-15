@@ -113,9 +113,13 @@ public sealed class TemperatureService : IDisposable
                 }
             }
         }
+        catch (ManagementException)
+        {
+            // Expected on machines whose firmware exposes no thermal zone perf class — not an error.
+        }
         catch (Exception ex)
         {
-            Logger.Error("ThermalZone perf query", ex);
+            Logger.Info("ThermalZone perf query: " + ex.Message);
         }
     }
 
@@ -137,9 +141,13 @@ public sealed class TemperatureService : IDisposable
                 }
             }
         }
+        catch (ManagementException)
+        {
+            // "Not supported" on many VMs/mainboards — the fallback simply yields nothing.
+        }
         catch (Exception ex)
         {
-            Logger.Error("ACPI thermal query", ex);
+            Logger.Info("ACPI thermal query: " + ex.Message);
         }
     }
 

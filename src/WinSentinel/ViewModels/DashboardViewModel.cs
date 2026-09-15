@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Threading;
+using WinSentinel.Abstractions;
 using WinSentinel.Helpers;
 using WinSentinel.Models;
 using WinSentinel.Services;
@@ -23,6 +25,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     private readonly MemoryOptimizer _memory;
     private readonly StartupManager _startup;
     private readonly NetworkService _network;
+    private readonly PluginHost _plugins;
     private readonly SettingsService _settings;
     private readonly ThemeManager _theme;
     private readonly AlertService _alerts;
@@ -42,6 +45,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         MemoryOptimizer memory,
         StartupManager startup,
         NetworkService network,
+        PluginHost plugins,
         SettingsService settings,
         ThemeManager theme,
         AlertService alerts)
@@ -51,6 +55,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         _memory = memory;
         _startup = startup;
         _network = network;
+        _plugins = plugins;
         _settings = settings;
         _theme = theme;
         _alerts = alerts;
@@ -70,6 +75,10 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         // Alert history ---------------------------------------------------------------
         _alerts.AlertRaised += OnAlertRaised;
         foreach (var alert in _alerts.History) AlertsHistory.Add(alert);
+
+        // Plugins -----------------------------------------------------------------------
+        _plugins.ValuesUpdated += OnPluginValues;
+        _plugins.PluginsChanged += OnPluginsChanged;
 
         // Seed histories so the sparklines draw a full-width baseline right away.
         for (int i = 0; i < HistoryLength; i++)
@@ -106,6 +115,8 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         ResetSettingsCommand = new RelayCommand(_ => ResetSettings());
         RefreshConnectionsCommand = new RelayCommand(_ => _ = RefreshConnectionsAsync());
         ClearAlertsCommand = new RelayCommand(_ => ClearAlerts());
+        ReloadPluginsCommand = new RelayCommand(_ => ReloadPlugins());
+        OpenPluginsFolderCommand = new RelayCommand(_ => OpenPluginsFolder());
 
         // Process auto-refresh timer -------------------------------------------------
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(SelectedRefreshSeconds) };
@@ -122,6 +133,8 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         _ = RefreshProcessesAsync();
         RefreshStartup();
         UpdateAdapters();
+        RebuildPluginRows();
+        UpdatePluginMetrics();
         SetStatus("Monitoring system…");
     }
 
@@ -232,8 +245,29 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     /// <summary>True when per-process TCP statistics could be enabled (needs elevation).</summary>
     public bool ProcessTcpStatsAvailable => _network.ProcessTcpStatsAvailable;
 
-    // ── Alerts page ───────────────────────────────────────────────────────
+        // ── Alerts page ───────────────────────────────────────────────────────
     public ObservableCollection<Alert> AlertsHistory { get; } = new();
+
+    // ── Plugins ───────────────────────────────────────────────────────────
+    public ObservableCollection<PluginHost.PluginMetricValue> PluginMetrics { get; } = new();
+
+    public ObservableCollection<PluginRow> Plugins { get; } = new();
+
+    public bool HasPluginMetrics => PluginMetrics.Count > 0;
+
+    public bool HasPlugins => Plugins.Count > 0;
+
+    public string PluginsDirectory => _plugins.PluginsDirectory;
+
+    public string PluginSummary
+    {
+        get
+        {
+            if (Plugins.Count == 0) return "No plugins loaded.";
+            int loaded = Plugins.Count(p => !p.IsError);
+            return $"{loaded}/{Plugins.Count} plugins loaded • {PluginMetrics.Count} metrics";
+        }
+    }
 
     private string _searchText = string.Empty;
     public string SearchText
@@ -573,6 +607,8 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
     public RelayCommand ResetSettingsCommand { get; }
     public RelayCommand RefreshConnectionsCommand { get; }
     public RelayCommand ClearAlertsCommand { get; }
+    public RelayCommand ReloadPluginsCommand { get; }
+    public RelayCommand OpenPluginsFolderCommand { get; }
 
     // ═══════════════════════════════════════════════════════════════════ Sampling
 
@@ -1059,6 +1095,125 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         SetStatus("Alert history cleared.");
     }
 
+    // ═══════════════════════════════════════════════════════════════════ Plugins
+
+    private void OnPluginValues(object? sender, EventArgs e)
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _dispatcher.BeginInvoke(UpdatePluginMetrics);
+            return;
+        }
+        UpdatePluginMetrics();
+    }
+
+    private void OnPluginsChanged(object? sender, EventArgs e)
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _dispatcher.BeginInvoke(() => { RebuildPluginRows(); UpdatePluginMetrics(); });
+            return;
+        }
+        RebuildPluginRows();
+        UpdatePluginMetrics();
+    }
+
+    private void RebuildPluginRows()
+    {
+        try
+        {
+            Plugins.Clear();
+            foreach (var plugin in _plugins.Plugins)
+            {
+                var row = new PluginRow
+                {
+                    Name = string.IsNullOrWhiteSpace(plugin.Name) ? plugin.Id : plugin.Name,
+                    Version = plugin.Version,
+                    Author = plugin.Author,
+                    Description = plugin.Description,
+                    Status = plugin.Status,
+                    Error = plugin.Error,
+                    SourcePath = plugin.SourcePath
+                };
+
+                foreach (var entry in plugin.Commands)
+                {
+                    var captured = entry;
+                    row.Commands.Add(new PluginCommandRow
+                    {
+                        Title = captured.Title,
+                        Description = captured.Description,
+                        RunCommand = new RelayCommand(_ => RunPluginCommand(captured))
+                    });
+                }
+
+                Plugins.Add(row);
+            }
+
+            OnPropertyChanged(nameof(HasPlugins));
+            OnPropertyChanged(nameof(PluginSummary));
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Plugin rows", ex);
+        }
+    }
+
+    private void UpdatePluginMetrics()
+    {
+        PluginMetrics.Clear();
+        foreach (var value in _plugins.LastValues) PluginMetrics.Add(value);
+        OnPropertyChanged(nameof(HasPluginMetrics));
+        OnPropertyChanged(nameof(PluginSummary));
+    }
+
+    private void RunPluginCommand(PluginHost.PluginCommandEntry entry)
+    {
+        var selection = SelectedProcess;
+        var context = new PluginCommandContext
+        {
+            SelectedProcessId = selection?.Pid,
+            SelectedProcessName = selection?.Name
+        };
+
+        bool ok = _plugins.TryExecuteCommand(entry, context, out string message);
+        SetStatus(message);
+        if (!ok) Logger.Info($"Plugin command '{entry.Title}' was not executed.");
+    }
+
+    private void OpenPluginsFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(_plugins.PluginsDirectory);
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{_plugins.PluginsDirectory}\"")
+            {
+                UseShellExecute = true
+            });
+            SetStatus($"Opened {_plugins.PluginsDirectory}");
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Could not open the plugins folder: {ex.Message}");
+        }
+    }
+
+    private void ReloadPlugins()
+    {
+        SetStatus("Reloading plugins…");
+        try
+        {
+            _plugins.ReloadAll();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Plugin reload", ex);
+        }
+        RebuildPluginRows();
+        UpdatePluginMetrics();
+        SetStatus($"Plugins reloaded — {Plugins.Count(p => !p.IsError)} loaded, {PluginMetrics.Count} metrics.");
+    }
+
     // ═══════════════════════════════════════════════════════════════════ Lifecycle
 
     public void Dispose()
@@ -1068,5 +1223,7 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         _refreshTimer.Stop();
         _monitor.SampleUpdated -= OnSample;
         _alerts.AlertRaised -= OnAlertRaised;
+        _plugins.ValuesUpdated -= OnPluginValues;
+        _plugins.PluginsChanged -= OnPluginsChanged;
     }
 }

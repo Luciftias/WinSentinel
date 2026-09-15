@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sample WinSentinel plugin. Build it, then copy the DLL into %AppData%\WinSentinel\plugins
+    (or click "Open plugins folder" in the app's Settings → Plugins).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>WinSentinel.Plugin.Example</AssemblyName>
+    <RootNamespace>WinSentinel.Plugin.Example</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>WinSentinel</Authors>
+    <Description>Sample WinSentinel plugin: C: free space, ping latency, and demo commands.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WinSentinel.Abstractions\WinSentinel.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

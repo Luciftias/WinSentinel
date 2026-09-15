@@ -19,8 +19,11 @@ public sealed class TrayIconManager : IDisposable
     private readonly NotifyIcon _icon;
     private readonly SystemMonitorService _monitor;
     private readonly Dispatcher _dispatcher;
+    private readonly ContextMenuStrip _menu;
     private readonly ToolStripMenuItem _balloonItem;
     private readonly ToolStripMenuItem _alertsItem;
+    private readonly ToolStripMenuItem _settingsItem;
+    private ToolStripMenuItem? _pluginsMenu;
 
     public event Action? OpenDashboardRequested;
     public event Action? ToggleBalloonRequested;
@@ -42,6 +45,7 @@ public sealed class TrayIconManager : IDisposable
         };
 
         var menu = new ContextMenuStrip();
+        _menu = menu;
 
         var openItem = new ToolStripMenuItem("Open Dashboard", null, (_, _) => OpenDashboardRequested?.Invoke());
         openItem.Font = new Font(openItem.Font, FontStyle.Bold);
@@ -62,7 +66,8 @@ public sealed class TrayIconManager : IDisposable
         };
         menu.Items.Add(_alertsItem);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Settings…", null, (_, _) => SettingsRequested?.Invoke());
+        _settingsItem = new ToolStripMenuItem("Settings…", null, (_, _) => SettingsRequested?.Invoke());
+        menu.Items.Add(_settingsItem);
         menu.Items.Add("Exit", null, (_, _) => ExitRequested?.Invoke());
         _icon.ContextMenuStrip = menu;
 
@@ -89,6 +94,39 @@ public sealed class TrayIconManager : IDisposable
 
     private void OnAlertsClicked(object? sender, EventArgs e)
         => AlertsToggled?.Invoke(_alertsItem.Checked);
+
+    /// <summary>
+    /// Rebuilds the "Plugins" submenu from plugin-registered commands (empty list hides it).
+    /// Safe to call from any thread; UI dispatch is handled internally.
+    /// </summary>
+    public void SetPluginCommands(IReadOnlyList<(string Title, Action Execute)> commands)
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _dispatcher.BeginInvoke(() => SetPluginCommands(commands));
+            return;
+        }
+
+        if (_pluginsMenu is not null)
+        {
+            _menu.Items.Remove(_pluginsMenu);
+            _pluginsMenu.Dispose();
+            _pluginsMenu = null;
+        }
+
+        if (commands.Count == 0) return;
+
+        var submenu = new ToolStripMenuItem("Plugins");
+        foreach (var (title, execute) in commands)
+        {
+            submenu.DropDownItems.Add(title, null, (_, _) => execute());
+        }
+
+        int index = _menu.Items.IndexOf(_settingsItem);
+        if (index < 0) _menu.Items.Add(submenu);
+        else _menu.Items.Insert(index, submenu);
+        _pluginsMenu = submenu;
+    }
 
     private static Icon LoadTrayIcon()
     {

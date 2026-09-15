@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using WinSentinel.Abstractions;
 using WinSentinel.Helpers;
 using WinSentinel.Models;
 using WinSentinel.Services;
@@ -28,6 +29,7 @@ public partial class App : Application
     private MemoryOptimizer? _memory;
     private StartupManager? _startup;
     private AlertService? _alerts;
+    private PluginHost? _plugins;
     private TrayIconManager? _tray;
     private BalloonWindow? _balloon;
     private DashboardWindow? _dashboard;
@@ -67,6 +69,11 @@ public partial class App : Application
         _monitor.SampleUpdated += (_, sample) => _alerts.OnSample(sample);
         _temperature.Start();
 
+        // Plugins (loaded from %AppData%\WinSentinel\plugins; failures never take the app down)
+        _plugins = new PluginHost();
+        _plugins.LoadAll();
+        _plugins.Start();
+
         // Tray
         _tray = new TrayIconManager(_monitor)
         {
@@ -81,6 +88,8 @@ public partial class App : Application
         _tray.AlertsToggled += enabled => _settings.Update(s => s.AlertsEnabled = enabled);
         _tray.ExitRequested += () => Shutdown();
         _alerts.AlertRaised += (_, alert) => _tray.ShowBalloon(alert.Title, alert.Message);
+        _tray.SetPluginCommands(BuildTrayPluginCommands());
+        _plugins.PluginsChanged += (_, _) => _tray?.SetPluginCommands(BuildTrayPluginCommands());
 
         // Floating balloon
         _balloon = new BalloonWindow { DataContext = new BalloonViewModel(_monitor, _settings) };
@@ -135,16 +144,38 @@ public partial class App : Application
     private void ToggleBalloon()
         => _settings?.Update(s => s.BalloonVisible = !s.BalloonVisible);
 
+    // ---------------------------------------------------------------- plugins
+
+    private List<(string Title, Action Execute)> BuildTrayPluginCommands()
+    {
+        var list = new List<(string, Action)>();
+        if (_plugins is null) return list;
+
+        foreach (var entry in _plugins.Commands)
+        {
+            var captured = entry;
+            list.Add((captured.Display, () => ExecutePluginCommand(captured)));
+        }
+        return list;
+    }
+
+    private void ExecutePluginCommand(PluginHost.PluginCommandEntry entry)
+    {
+        if (_plugins is null) return;
+        bool ok = _plugins.TryExecuteCommand(entry, PluginCommandContext.Empty, out string message);
+        if (!ok) _tray?.ShowBalloon("Plugin command", message);
+    }
+
     // ---------------------------------------------------------------- dashboard
 
     private void ShowDashboard(bool navigateToSettings = false)
     {
         if (_monitor is null || _settings is null || _processes is null || _memory is null ||
-            _startup is null || _theme is null || _alerts is null || _network is null) return;
+            _startup is null || _theme is null || _alerts is null || _network is null || _plugins is null) return;
 
         if (_dashboard is null)
         {
-            var vm = new DashboardViewModel(_monitor, _processes, _memory, _startup, _network, _settings, _theme, _alerts);
+            var vm = new DashboardViewModel(_monitor, _processes, _memory, _startup, _network, _plugins, _settings, _theme, _alerts);
             var window = new DashboardWindow { DataContext = vm };
             window.Closed += (_, _) =>
             {
@@ -233,6 +264,7 @@ public partial class App : Application
         _processes?.Dispose();
         _temperature?.Dispose();
         _network?.Dispose();
+        _plugins?.Dispose();
         _theme?.Dispose();
         _balloon?.Close();
         _instanceMutex?.Dispose();
