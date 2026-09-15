@@ -9,6 +9,11 @@
     <FontFamily x:Key="UiFont">Segoe UI</FontFamily>
     <FontFamily x:Key="MonoFont">Consolas</FontFamily>
 
+    <!-- Shadow colour lives here (not in the theme dictionaries) because control templates in
+         THIS dictionary reference it with StaticResource: a template's StaticResource lookup is
+         scoped to the dictionary that defines it, which cannot see sibling theme dictionaries. -->
+    <Color x:Key="ShadowColor">#FF000000</Color>
+
     <!-- ============================================================== Text -->
     <Style x:Key="H1" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>

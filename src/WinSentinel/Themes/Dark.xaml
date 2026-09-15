@@ -62,6 +62,5 @@
     <Color x:Key="ChromeColor">#FF10151C</Color>
     <SolidColorBrush x:Key="ChromeBrush" Color="{StaticResource ChromeColor}"/>
     <SolidColorBrush x:Key="WindowBorderBrush" Color="{StaticResource BorderColor}"/>
-    <Color x:Key="ShadowColor">#FF000000</Color>
 
 </ResourceDictionary>
