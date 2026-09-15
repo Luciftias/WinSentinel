@@ -12,6 +12,9 @@ public sealed class ProcessRow : ViewModelBase
     private string _name;
     public string Name { get => _name; private set => SetField(ref _name, value); }
 
+    /// <summary>Small executable icon shown in the process table.</summary>
+    public System.Windows.Media.ImageSource? Icon { get; private set; }
+
     /// <summary>Full image path (for tooltips / "open file location").</summary>
     public string? Path { get; private set; }
 
@@ -111,6 +114,11 @@ public sealed class ProcessRow : ViewModelBase
         Name = info.Name;
         Path = info.Path;
         Company = info.Company;
+        if (!ReferenceEquals(Icon, info.Icon))
+        {
+            Icon = info.Icon;
+            OnPropertyChanged(nameof(Icon));
+        }
         MemoryMB = info.WorkingSetMB;
         CpuPercent = info.CpuPercent;
         DiskBps = info.DiskReadBps is null && info.DiskWriteBps is null

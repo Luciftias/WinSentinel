@@ -14,6 +14,12 @@ public sealed class AppSettings
     /// <summary>Cyan | Blue | Violet | Green | Orange | Rose | System</summary>
     public string Accent { get; set; } = "Cyan";
 
+    /// <summary>Use the Windows 11 Mica backdrop when available (translucent window).</summary>
+    public bool TranslucentBackdrop { get; set; } = true;
+
+    /// <summary>UI motion (page transitions, gauge easing) — also requires the Windows animation setting.</summary>
+    public bool AnimationsEnabled { get; set; } = true;
+
     // ── Monitoring ────────────────────────────────────────────────────────────
     /// <summary>System sample interval in ms (500 | 1000 | 2000).</summary>
     public int SampleIntervalMs { get; set; } = 1000;

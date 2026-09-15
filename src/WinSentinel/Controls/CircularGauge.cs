@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using WinSentinel.Helpers;
 
 namespace WinSentinel.Controls;
 
@@ -8,11 +10,17 @@ namespace WinSentinel.Controls;
 /// Self-contained circular progress gauge drawn in <see cref="OnRender"/> — no template,
 /// no third-party dependency. Shows a track ring, a value arc that grows clockwise from
 /// 12 o'clock, the value as a centred percentage, and an optional caption beneath it.
+/// The arc eases to new values (respecting the motion preferences) for a premium feel.
 /// </summary>
 public sealed class CircularGauge : FrameworkElement
 {
     public static readonly DependencyProperty ValueProperty = DependencyProperty.Register(
         nameof(Value), typeof(double), typeof(CircularGauge),
+        new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender, OnValueChanged));
+
+    /// <summary>Eased display value driven by <see cref="Value"/> animations.</summary>
+    public static readonly DependencyProperty AnimatedValueProperty = DependencyProperty.Register(
+        nameof(AnimatedValue), typeof(double), typeof(CircularGauge),
         new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public static readonly DependencyProperty MaximumProperty = DependencyProperty.Register(
@@ -44,6 +52,7 @@ public sealed class CircularGauge : FrameworkElement
         new FrameworkPropertyMetadata(string.Empty, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public double Value { get => (double)GetValue(ValueProperty); set => SetValue(ValueProperty, value); }
+    public double AnimatedValue { get => (double)GetValue(AnimatedValueProperty); private set => SetValue(AnimatedValueProperty, value); }
     public double Maximum { get => (double)GetValue(MaximumProperty); set => SetValue(MaximumProperty, value); }
     public Brush RingBrush { get => (Brush)GetValue(RingBrushProperty); set => SetValue(RingBrushProperty, value); }
     public Brush TrackBrush { get => (Brush)GetValue(TrackBrushProperty); set => SetValue(TrackBrushProperty, value); }
@@ -51,6 +60,27 @@ public sealed class CircularGauge : FrameworkElement
     public Brush CaptionBrush { get => (Brush)GetValue(CaptionBrushProperty); set => SetValue(CaptionBrushProperty, value); }
     public double RingThickness { get => (double)GetValue(RingThicknessProperty); set => SetValue(RingThicknessProperty, value); }
     public string Caption { get => (string)GetValue(CaptionProperty); set => SetValue(CaptionProperty, value); }
+
+    private static void OnValueChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var gauge = (CircularGauge)d;
+        double target = gauge.Value;
+
+        if (!Motion.UseAnimations)
+        {
+            gauge.AnimatedValue = target;
+            return;
+        }
+
+        var animation = new DoubleAnimation
+        {
+            To = target,
+            Duration = new Duration(TimeSpan.FromMilliseconds(280)),
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        gauge.BeginAnimation(AnimatedValueProperty, animation);
+    }
 
     protected override void OnRender(DrawingContext dc)
     {
@@ -68,8 +98,8 @@ public sealed class CircularGauge : FrameworkElement
         var trackPen = new Pen(TrackBrush, RingThickness);
         dc.DrawEllipse(null, trackPen, center, radius, radius);
 
-        // Value arc
-        double fraction = Maximum <= 0 ? 0 : Math.Clamp(Value / Maximum, 0, 1);
+        // Value arc (eased display value)
+        double fraction = Maximum <= 0 ? 0 : Math.Clamp(AnimatedValue / Maximum, 0, 1);
         if (fraction >= 0.999)
         {
             var fullPen = new Pen(RingBrush, RingThickness);
@@ -104,7 +134,7 @@ public sealed class CircularGauge : FrameworkElement
 
         // Centre value text
         var valueText = new FormattedText(
-            $"{Value:0}%",
+            $"{AnimatedValue:0}%",
             CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
             new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal),
             Math.Max(12, size * 0.22), TextBrush, dpi);

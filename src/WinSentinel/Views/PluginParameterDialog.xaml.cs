@@ -1,4 +1,5 @@
 using System.Windows;
+using WinSentinel.Helpers;
 
 namespace WinSentinel.Views;
 
@@ -8,6 +9,7 @@ public partial class PluginParameterDialog : Window
     public PluginParameterDialog(string commandTitle, string label, string placeholder)
     {
         InitializeComponent();
+        SourceInitialized += (_, _) => WindowEffects.ApplyDialog(this, !ThemeManager.CurrentThemeIsLight);
         HeaderText.Text = commandTitle;
         LabelText.Text = label;
         ValueBox.Text = placeholder;

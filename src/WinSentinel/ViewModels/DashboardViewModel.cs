@@ -363,6 +363,28 @@ public sealed class DashboardViewModel : ViewModelBase, IDisposable
         }
     }
 
+    public bool TranslucentBackdrop
+    {
+        get => _settings.Current.TranslucentBackdrop;
+        set
+        {
+            if (value == _settings.Current.TranslucentBackdrop) return;
+            _settings.Update(s => s.TranslucentBackdrop = value);
+            OnPropertyChanged();
+        }
+    }
+
+    public bool AnimationsEnabled
+    {
+        get => _settings.Current.AnimationsEnabled;
+        set
+        {
+            if (value == _settings.Current.AnimationsEnabled) return;
+            _settings.Update(s => s.AnimationsEnabled = value);
+            OnPropertyChanged();
+        }
+    }
+
     public int SelectedSampleIntervalMs
     {
         get => _settings.Current.SampleIntervalMs;

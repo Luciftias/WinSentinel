@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using WinSentinel.Helpers;
 
 namespace WinSentinel.Views;
 
@@ -14,6 +15,7 @@ public partial class AffinityWindow : Window
     public AffinityWindow(string processName, long currentMask)
     {
         InitializeComponent();
+        SourceInitialized += (_, _) => WindowEffects.ApplyDialog(this, !ThemeManager.CurrentThemeIsLight);
         HeaderText.Text = $"CPU affinity — {processName}";
 
         int cores = Environment.ProcessorCount;

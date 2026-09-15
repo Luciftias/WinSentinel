@@ -36,6 +36,7 @@ public partial class App : Application
 
     private string _appliedTheme = string.Empty;
     private string _appliedAccent = string.Empty;
+    private bool _appliedTranslucent;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -57,6 +58,8 @@ public partial class App : Application
         _theme.Apply();
         _appliedTheme = _settings.Current.Theme;
         _appliedAccent = _settings.Current.Accent;
+        _appliedTranslucent = _settings.Current.TranslucentBackdrop;
+        Helpers.Motion.Enabled = _settings.Current.AnimationsEnabled;
 
         // Core services
         _network = new NetworkService();
@@ -112,6 +115,16 @@ public partial class App : Application
         {
             _appliedTheme = s.Theme;
             _appliedAccent = s.Accent;
+            _theme?.Apply();
+        }
+
+        Helpers.Motion.Enabled = s.AnimationsEnabled;
+
+        // A backdrop toggle changes native window composition — reuse the theme broadcast so every
+        // open window re-applies its DWM effects.
+        if (s.TranslucentBackdrop != _appliedTranslucent)
+        {
+            _appliedTranslucent = s.TranslucentBackdrop;
             _theme?.Apply();
         }
 

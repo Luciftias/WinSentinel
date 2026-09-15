@@ -14,7 +14,7 @@
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
     </Window.Resources>
 
-    <Border CornerRadius="16" Background="{DynamicResource ChromeBrush}"
+    <Border x:Name="RootCard" CornerRadius="16" Background="{DynamicResource ChromeBrush}"
             BorderBrush="{DynamicResource AccentBorderBrush}" BorderThickness="1"
             MouseLeftButtonDown="OnMouseDown" MouseLeftButtonUp="OnMouseUp"
             ToolTip="Drag to move • Double-click for the dashboard • Right-click for actions">

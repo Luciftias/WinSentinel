@@ -40,8 +40,9 @@ startup programs — wrapped in a themed WPF dashboard.
 > a network explorer with per-process TCP attribution (TCP extended statistics), ACPI temperature
 > monitoring, a three-family anomaly engine (sustained thresholds, z-score spikes, runaway
 > processes) and an **in-process plugin system** with a security family (pcap capture · port scan ·
-> HTTP inspector), all on **.NET 10 LTS** (.NET 8 reached end of support 2026-11-10).
-> Everything below is verified against the source tree at v2.3.0.
+> HTTP inspector), plus a **macOS-grade UI pass** (custom chrome, Mica backdrop, motion system,
+> process icons) — all on **.NET 10 LTS** (.NET 8 reached end of support 2026-11-10).
+> Everything below is verified against the source tree at v2.4.0.
 
 <details>
 <summary><strong>What's new in 2.0 — at a glance</strong> (click to expand)</summary>
@@ -80,6 +81,20 @@ startup programs — wrapped in a themed WPF dashboard.
 | **Port Scanner (TCP)** | Concurrent TCP connect scan of 1048 common ports (1–1024 + service ports) with a text report; defaults to **127.0.0.1** | Connect scan only — no SYN stealth, OS fingerprinting or scripts; scan only systems you're authorised to test |
 | **HTTP Inspector** | Loopback forward proxy on **127.0.0.1:8878** (configurable): logs plain-HTTP requests (method · target · status · bytes) and tunnels HTTPS via CONNECT with byte counts | **No TLS interception, no root certificate** — HTTPS payload is never decrypted |
 | **Parameter prompts** | `IPluginCommand.RequiresParameter` lets the host ask for one value (e.g. scan target) with a themed dialog | Backwards compatible default interface members — existing plugins keep working |
+
+</details>
+
+<details>
+<summary><strong>What's new in 2.4 — premium UI pass</strong> (click to expand)</summary>
+
+| Area | Added |
+|------|-------|
+| **Window chrome** | Frameless `WindowChrome` with a custom caption bar, macOS-style display typography, working minimize / maximize / close buttons (close hovers red), automatic maximize inset, and rounded corners + immersive dark borders on Windows 11 |
+| **Mica backdrop** | Optional translucent backdrop (Windows 11 22H2+ via `DWMWA_SYSTEMBACKDROP_TYPE` + extended frame) — the themed layout floats over wallpaper-aware Mica; automatic solid-background fallback everywhere else, toggle in Settings → Window |
+| **Motion system** | Central `Motion` gate that honours both a user setting and the Windows “Animation effects” accessibility flag: page fade/slide transitions, eased gauge sweeps, balloon fade-in, pressed-button micro-scale |
+| **Visual language** | Large per-page titles with subtitles, Segoe UI Variable Display headings, glyph sidebar icons (MDL2), gradient-fade sparkline fills, softer pressed states, elevated status bar chips |
+| **Process icons** | Real executable icons extracted per process (frozen bitmaps, cached) and shown in a new slim icon column |
+| **Hardening** | Theme dictionaries now load via assembly-qualified pack URIs (deterministic regardless of entry assembly — app, test host or future plugin host) |
 
 </details>
 
@@ -255,6 +270,12 @@ and never touches a target until you confirm one in the prompt; the capture buff
 
 ### Experience
 
+- **Premium window chrome** — frameless caption bar with custom buttons (rounded corners and
+  immersive dark borders on Windows 11), optional **Mica backdrop**, and large per-page titles.
+- **Motion that respects accessibility** — page transitions, eased gauges and balloon fades run
+  only when the Windows animation setting and the WinSentinel toggle both allow it.
+- **Process icons** extracted per executable, plus a glyph sidebar (MDI2), gradient sparkline
+  fills and pressed-state micro-interactions.
 - Floating balloon: always-on-top, frameless, translucent, **draggable with remembered position**
   (clamped into the current virtual screen), opacity slider, optional GPU / disk / network rows,
   right-click quick actions, double-click → dashboard.
@@ -609,6 +630,9 @@ gitGraph
     commit id: "fix: theme tokens"
     commit id: "fix: button styles"
     commit id: "v2.1: network · temp · anomalies"
+    commit id: "v2.2: plugin system"
+    commit id: "v2.3: security plugins"
+    commit id: "v2.4: premium UI"
 ```
 
 ---
@@ -625,6 +649,7 @@ gitGraph
 | Interop | P/Invoke + WMI | kernel32 · psapi · ntdll · powrprof · iphlpapi · pdh declared in one file; `System.Management` for WMI sensors |
 | WMI | `System.Management` (Microsoft, MIT) | **The only NuGet package** — ACPI thermal zones + adapter friendly names |
 | Plugins | `AssemblyLoadContext` (collectible) | In-process plugin host; the contract assembly `WinSentinel.Abstractions` is shared with plugins for type identity |
+| Window polish | `WindowChrome` + DWM attributes | Custom caption bar, rounded corners, immersive dark, optional Mica; `SystemParametersInfo` honours the Windows animation setting |
 | Settings | `System.Text.Json` | Debounced save, sanitized load |
 | Packaging | Single-file self-contained publish | `PublishSingleFile` + `IncludeNativeLibrariesForSelfExtract` |
 
@@ -644,6 +669,8 @@ gitGraph
 | Packet capture plugin | Administrator + active adapter | Raw socket `SIO_RCVALL`; on Wi-Fi, Windows typically exposes only this machine's traffic |
 | Port scanner plugin | — | TCP connect scan of common ports; defaults to 127.0.0.1 — only scan systems you are authorised to test |
 | HTTP inspector plugin | A free loopback port (default 8878) | Plain HTTP logged; HTTPS tunnelled, never decrypted; port configurable via the plugin's `settings.json` |
+| Mica backdrop | Windows 11 22H2+ | Optional; the app falls back to the solid themed background elsewhere (Settings → Window) |
+| UI motion | Windows animation setting enabled | Page transitions / eased gauges / balloon fade also require the WinSentinel toggle; everything works without animation |
 | Temperature | ACPI thermal zones exposed by the firmware | Many VMs/mainboards expose none — the card and the temp alert stay hidden (verify with `Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation`) |
 | Architecture | x64 / AnyCPU | Both solution platforms supported |
 
@@ -706,6 +733,10 @@ WinSentinel/
         ├── Converters/Converters.cs     Protected→brush, bool→visibility, startup state
         ├── Helpers/
         │   ├── ThemeManager.cs          Runtime theme/accent swapping + system theme watch
+        │   ├── WindowEffects.cs         DWM rounding / immersive dark / optional Mica
+        │   ├── Motion.cs                Motion gate (user setting + Windows animation flag)
+        │   ├── IconLoader.cs            Frozen process icons (cached, background-safe)
+        │   ├── CommandPrompt.cs         Shared parameter prompt for plugin commands
         │   └── TrayIconManager.cs       NotifyIcon owner (only WinForms file)
         └── Views/
             ├── BalloonWindow.xaml(.cs)   The floating balloon
@@ -977,6 +1008,8 @@ invalid state.
 | Capture plugin: "access forbidden" | Not elevated | Run WinSentinel as administrator — raw sockets require it |
 | Proxy plugin won't start | Port already in use | Set another `port` in `%AppData%\WinSentinel\plugins\security.http-inspector\settings.json`, then Reload |
 | Port scan finds nothing | Firewall or no listeners | Expected on most hardened hosts; start with 127.0.0.1 to see your own services |
+| No Mica transparency | Windows 10, or the backdrop toggle is off | Expected — Mica needs Windows 11 22H2+; enable it under Settings → Window |
+| No animations | Windows "Animation effects" is off, or the app toggle is off | Both must allow motion; everything remains fully functional without it |
 | "WinSentinel is already running" at launch | Single-instance mutex | Check the system tray |
 | Balloon disappeared after a monitor change | Position clamped into current virtual screen | Tray → Show Floating Balloon, or Settings → Reset position |
 | App crashed once and recovered | Crash handler logged it | Read `%AppData%\WinSentinel\winsentinel.log` |
@@ -1024,5 +1057,5 @@ relying on it in production.
 ---
 
 <div align="center">
-<sub>WinSentinel 2.3 · C# / .NET 10 / WPF · MVVM · one Microsoft package (`System.Management`) · plugin system + security family · verified on Windows 10 22H2</sub>
+<sub>WinSentinel 2.4 · C# / .NET 10 / WPF · MVVM · one Microsoft package (`System.Management`) · plugin system + security family · premium window chrome · verified on Windows 10 22H2</sub>
 </div>

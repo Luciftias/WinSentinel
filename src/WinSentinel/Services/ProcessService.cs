@@ -143,6 +143,7 @@ public sealed class ProcessService : IDisposable
                 string? path = null;
                 try { path = GetImagePath(p); } catch { }
                 string? company = path is null ? null : GetCompany(path);
+                var icon = Helpers.IconLoader.Get(path);
 
                 double? gpuPercent = gpuByPid.TryGetValue(pid, out double g) ? g : null;
 
@@ -161,6 +162,7 @@ public sealed class ProcessService : IDisposable
                     Pid = pid,
                     Name = name,
                     Path = path,
+                    Icon = icon,
                     Company = company,
                     WorkingSetMB = workingSetMB,
                     CpuPercent = cpuPercent,

@@ -1,5 +1,7 @@
 namespace WinSentinel.Models;
 
+using System.Windows.Media;
+
 /// <summary>
 /// A lightweight, UI-friendly snapshot of a running process, captured by
 /// <see cref="WinSentinel.Services.ProcessService"/> so the UI never holds live
@@ -13,6 +15,9 @@ public sealed class ProcessInfo
 
     /// <summary>Full image path, when readable.</summary>
     public string? Path { get; init; }
+
+    /// <summary>Small frozen icon extracted from the executable (background-thread safe).</summary>
+    public ImageSource? Icon { get; init; }
 
     /// <summary>Version-info company name (cached per path), when readable.</summary>
     public string? Company { get; init; }

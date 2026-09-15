@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media.Animation;
+using WinSentinel.Helpers;
 using WinSentinel.ViewModels;
 
 namespace WinSentinel.Views;
@@ -47,6 +49,14 @@ public partial class BalloonWindow : Window
 
         Left = Math.Clamp(Vm.PositionX, minX, maxX);
         Top = Math.Clamp(Vm.PositionY, minY, maxY);
+
+        // Gentle fade-in for a premium feel (skipped when motion is disabled).
+        if (Motion.UseAnimations)
+        {
+            RootCard.Opacity = 0;
+            RootCard.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(1, Motion.Medium) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+        }
     }
 
     private void OnMouseDown(object sender, MouseButtonEventArgs e)

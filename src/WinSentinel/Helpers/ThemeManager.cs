@@ -31,6 +31,12 @@ public sealed class ThemeManager : IDisposable
     private readonly Dispatcher _dispatcher;
     private bool _hooked;
 
+    /// <summary>Raised after a theme/accent re-skin so windows can re-apply native effects.</summary>
+    public static event EventHandler? Applied;
+
+    /// <summary>True when the light dictionary is currently active (used for native dark mode too).</summary>
+    public static bool CurrentThemeIsLight { get; private set; }
+
     public ThemeManager(SettingsService settings)
     {
         _settings = settings;
@@ -48,11 +54,18 @@ public sealed class ThemeManager : IDisposable
 
         var s = _settings.Current;
         bool light = s.Theme == "Light" || (s.Theme == "System" && IsSystemLightTheme());
+        CurrentThemeIsLight = light;
 
         var merged = Application.Current.Resources.MergedDictionaries;
+
+        // Assembly-qualified pack URI: deterministic regardless of which assembly is the entry
+        // point (the app, a test host, or a future plugin host).
+        string assemblyName = typeof(ThemeManager).Assembly.GetName().Name!;
         var themeDict = new ResourceDictionary
         {
-            Source = new Uri($"Themes/{(light ? "Light" : "Dark")}.xaml", UriKind.Relative)
+            Source = new Uri(
+                $"pack://application:,,,/{assemblyName};component/Themes/{(light ? "Light" : "Dark")}.xaml",
+                UriKind.Absolute)
         };
         if (merged.Count > 1) merged[1] = themeDict;
         else merged.Add(themeDict);
@@ -62,6 +75,9 @@ public sealed class ThemeManager : IDisposable
         else merged.Add(accentDict);
 
         HookSystemEvents();
+
+        try { Applied?.Invoke(this, EventArgs.Empty); }
+        catch (Exception ex) { Logger.Error("Theme applied broadcast", ex); }
     }
 
     private static ResourceDictionary BuildAccentDictionary(Color accent)
