@@ -1,0 +1,282 @@
+<Window x:Class="WinSentinel.Views.DashboardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ctrl="clr-namespace:WinSentinel.Controls"
+        xmlns:conv="clr-namespace:WinSentinel.Converters"
+        Title="WinSentinel — System Monitor &amp; Optimizer"
+        Width="940" Height="660" MinWidth="780" MinHeight="540"
+        Background="{StaticResource BgBrush}"
+        WindowStartupLocation="CenterScreen"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+
+    <Window.Resources>
+        <conv:ProtectedToBrushConverter x:Key="ProtectedToBrush"/>
+
+        <!-- DataGrid column header -->
+        <Style x:Key="GridHeader" TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{StaticResource PanelAltBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource SubtleBrush}"/>
+            <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        </Style>
+
+        <Style x:Key="DarkGrid" TargetType="DataGrid">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="RowBackground" Value="{StaticResource PanelBrush}"/>
+            <Setter Property="AlternatingRowBackground" Value="{StaticResource PanelAltBrush}"/>
+            <Setter Property="GridLinesVisibility" Value="None"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="AutoGenerateColumns" Value="False"/>
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="SelectionMode" Value="Single"/>
+            <Setter Property="CanUserResizeRows" Value="False"/>
+            <Setter Property="RowHeight" Value="30"/>
+            <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="ColumnHeaderStyle" Value="{StaticResource GridHeader}"/>
+            <Setter Property="VerticalGridLinesBrush" Value="Transparent"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#1F2A323D"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ===== Header ===== -->
+        <Grid Grid.Row="0" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Width="44" Height="44" CornerRadius="10" Background="{StaticResource PanelBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" VerticalAlignment="Center">
+                <Image Source="/WinSentinel;component/Assets/logo.png" Width="34" Height="34"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+            </Border>
+
+            <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                <TextBlock Text="WinSentinel" Style="{StaticResource H1}" FontSize="20"/>
+                <TextBlock Text="Floating system monitor &amp; optimizer" Style="{StaticResource Label}"/>
+            </StackPanel>
+
+            <Border Grid.Column="2" CornerRadius="6" Background="#1A3FB950" BorderBrush="#553FB950"
+                    BorderThickness="1" Padding="10,5" VerticalAlignment="Center">
+                <TextBlock Text="Running elevated" Foreground="{StaticResource SuccessBrush}"
+                           FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"/>
+            </Border>
+        </Grid>
+
+        <!-- ===== Tabs ===== -->
+        <TabControl Grid.Row="1" Background="Transparent" BorderThickness="0">
+            <TabControl.Resources>
+                <Style TargetType="TabItem">
+                    <Setter Property="Foreground" Value="{StaticResource SubtleBrush}"/>
+                    <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+                    <Setter Property="FontSize" Value="13"/>
+                    <Setter Property="FontWeight" Value="SemiBold"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="TabItem">
+                                <Border x:Name="b" Padding="16,9" Margin="0,0,4,0" CornerRadius="8,8,0,0"
+                                        Background="Transparent" BorderThickness="0,0,0,2" BorderBrush="Transparent">
+                                    <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                                    </Trigger>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </TabControl.Resources>
+
+            <!-- ===== Overview ===== -->
+            <TabItem Header="Overview">
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- CPU card -->
+                    <Border Grid.Row="0" Grid.Column="0" Margin="0,0,8,0" CornerRadius="12"
+                            Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <Grid Margin="18">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="64"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="CPU" Style="{StaticResource Label}" FontWeight="SemiBold"/>
+                            <ctrl:CircularGauge Grid.Row="1" Margin="0,8" Value="{Binding Cpu}" Maximum="100"
+                                                Caption="utilisation"
+                                                RingBrush="{StaticResource AccentBrush}"/>
+                            <ctrl:Sparkline Grid.Row="2" Values="{Binding CpuHistory}" Maximum="100"
+                                            LineBrush="{StaticResource AccentBrush}" FillBrush="#1A22D3EE"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- RAM card -->
+                    <Border Grid.Row="0" Grid.Column="1" Margin="8,0,0,0" CornerRadius="12"
+                            Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <Grid Margin="18">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="64"/>
+                            </Grid.RowDefinitions>
+                            <StackPanel Grid.Row="0" Orientation="Horizontal">
+                                <TextBlock Text="MEMORY" Style="{StaticResource Label}" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding RamDetail}" Style="{StaticResource Label}" Margin="10,0,0,0"/>
+                            </StackPanel>
+                            <ctrl:CircularGauge Grid.Row="1" Margin="0,8" Value="{Binding Ram}" Maximum="100"
+                                                Caption="in use"
+                                                RingBrush="{StaticResource Accent2Brush}"/>
+                            <ctrl:Sparkline Grid.Row="2" Values="{Binding RamHistory}" Maximum="100"
+                                            LineBrush="{StaticResource Accent2Brush}" FillBrush="#1A3B82F6"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Quick actions -->
+                    <Border Grid.Row="1" Grid.ColumnSpan="2" Margin="0,16,0,0" CornerRadius="12"
+                            Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <Grid Margin="18,14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock Text="Trim working sets" Foreground="{StaticResource TextBrush}"
+                                           FontFamily="{StaticResource UiFont}" FontSize="14" FontWeight="SemiBold"/>
+                                <TextBlock Style="{StaticResource Label}" TextWrapping="Wrap" Margin="0,3,16,0"
+                                           Text="Asks Windows to page out resident memory for all non-protected processes. Useful after heavy workloads; the OS pages memory back in on demand, so treat this as a tuning aid, not a permanent fix."/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Trim Memory Now" Style="{StaticResource AccentButton}"
+                                    VerticalAlignment="Center" Command="{Binding TrimAllCommand}"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <!-- ===== Processes ===== -->
+            <TabItem Header="Processes">
+                <Grid Margin="0,16,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Toolbar -->
+                    <WrapPanel Grid.Row="0" Margin="0,0,0,12">
+                        <Button Content="Refresh" Style="{StaticResource GhostButton}" Command="{Binding RefreshProcessesCommand}"/>
+                        <Button Content="Trim Working Set" Style="{StaticResource GhostButton}" Command="{Binding TrimSelectedCommand}"/>
+                        <Button Content="CPU Affinity…" Style="{StaticResource GhostButton}" Click="OnAffinityClick"/>
+                        <Border Width="1" Background="{StaticResource BorderBrush}" Margin="4,2,12,2"/>
+                        <TextBlock Text="Priority" Style="{StaticResource Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="PriorityCombo" Width="140" Margin="0,0,8,0"/>
+                        <Button Content="Apply Priority" Style="{StaticResource GhostButton}" Click="OnApplyPriorityClick"/>
+                        <Border Width="1" Background="{StaticResource BorderBrush}" Margin="4,2,12,2"/>
+                        <Button Content="End Task" Style="{StaticResource DangerButton}" Command="{Binding KillSelectedCommand}"/>
+                    </WrapPanel>
+
+                    <DataGrid Grid.Row="1" Style="{StaticResource DarkGrid}"
+                              ItemsSource="{Binding Processes}"
+                              SelectedItem="{Binding SelectedProcess, Mode=TwoWay}">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Setter Property="Foreground" Value="{Binding IsProtected, Converter={StaticResource ProtectedToBrush}}"/>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Process" Binding="{Binding Name}" Width="*"/>
+                            <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="80"/>
+                            <DataGridTextColumn Header="Memory" Binding="{Binding MemoryDisplay}" Width="120"/>
+                            <DataGridTextColumn Header="Priority" Binding="{Binding Priority}" Width="120"/>
+                            <DataGridTextColumn Header="Threads" Binding="{Binding Threads}" Width="90"/>
+                            <DataGridTextColumn Header="Protected" Binding="{Binding IsProtected}" Width="100"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <!-- ===== Startup ===== -->
+            <TabItem Header="Startup">
+                <Grid Margin="0,16,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <WrapPanel Grid.Row="0" Margin="0,0,0,12">
+                        <Button Content="Refresh" Style="{StaticResource GhostButton}" Command="{Binding RefreshStartupCommand}"/>
+                        <Button Content="Remove (HKCU)" Style="{StaticResource DangerButton}" Command="{Binding RemoveStartupCommand}"/>
+                        <TextBlock Style="{StaticResource Label}" VerticalAlignment="Center" Margin="6,0,0,0"
+                                   Text="HKLM (machine-wide) entries are shown for visibility but are read-only here."/>
+                    </WrapPanel>
+
+                    <DataGrid Grid.Row="1" Style="{StaticResource DarkGrid}"
+                              ItemsSource="{Binding StartupItems}"
+                              SelectedItem="{Binding SelectedStartup, Mode=TwoWay}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="220"/>
+                            <DataGridTextColumn Header="Command" Binding="{Binding Command}" Width="*"/>
+                            <DataGridTextColumn Header="Location" Binding="{Binding Location}" Width="100"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <Border Grid.Row="2" Margin="0,12,0,0" CornerRadius="10" Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="200"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Add (HKCU):" Style="{StaticResource Label}"
+                                       VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <TextBox Grid.Column="1" x:Name="StartupNameBox" Margin="0,0,10,0"/>
+                            <TextBlock Grid.Column="2" Text="→" Foreground="{StaticResource SubtleBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <TextBox Grid.Column="3" x:Name="StartupCommandBox" Margin="0,0,10,0"/>
+                            <Button Grid.Column="4" Content="Add" Style="{StaticResource AccentButton}" Click="OnAddStartupClick"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- ===== Status bar ===== -->
+        <Border Grid.Row="2" Margin="0,14,0,0" CornerRadius="8" Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="14,9">
+            <TextBlock Text="{Binding Status}" Foreground="{StaticResource SubtleBrush}"
+                       FontFamily="{StaticResource UiFont}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+        </Border>
+    </Grid>
+</Window>

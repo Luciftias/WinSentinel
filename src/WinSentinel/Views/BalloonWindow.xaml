@@ -1,0 +1,37 @@
+<Window x:Class="WinSentinel.Views.BalloonWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="WinSentinel"
+        Width="168" Height="70"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
+        WindowStartupLocation="Manual" Left="48" Top="96"
+        UseLayoutRounding="True" SnapsToDevicePixels="True">
+
+    <Border CornerRadius="16" Background="#F00E1116" BorderBrush="#5522D3EE" BorderThickness="1"
+            MouseLeftButtonDown="OnMouseDown" ToolTip="Drag to move • Double-click to open WinSentinel">
+        <Border.Effect>
+            <DropShadowEffect Color="#000000" BlurRadius="22" ShadowDepth="0" Opacity="0.65"/>
+        </Border.Effect>
+
+        <Grid Margin="14,9">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                <TextBlock Text="CPU" Foreground="#8B949E" FontSize="10" FontFamily="Segoe UI" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding CpuText}" Foreground="#22D3EE" FontSize="22" FontWeight="SemiBold" FontFamily="Segoe UI"/>
+            </StackPanel>
+
+            <Border Grid.Column="1" Width="1" Background="#2A323D" Margin="6,4"/>
+
+            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="10,0,0,0">
+                <TextBlock Text="RAM" Foreground="#8B949E" FontSize="10" FontFamily="Segoe UI" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding RamText}" Foreground="#3B82F6" FontSize="22" FontWeight="SemiBold" FontFamily="Segoe UI"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

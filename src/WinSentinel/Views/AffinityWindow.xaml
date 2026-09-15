@@ -1,0 +1,30 @@
+<Window x:Class="WinSentinel.Views.AffinityWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="CPU Affinity"
+        Width="380" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}" UseLayoutRounding="True">
+
+    <StackPanel Margin="20">
+        <TextBlock x:Name="HeaderText" Style="{StaticResource H1}" Text="Set CPU affinity"/>
+        <TextBlock Style="{StaticResource Label}" Margin="0,4,0,14"
+                   Text="Choose which logical processors this process is allowed to run on. At least one core must remain selected."
+                   TextWrapping="Wrap"/>
+
+        <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1" CornerRadius="8" Padding="10">
+            <WrapPanel x:Name="CoresPanel"/>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Button Content="Select all" Style="{StaticResource GhostButton}" Click="OnSelectAll"/>
+            <Button Content="Clear" Style="{StaticResource GhostButton}" Click="OnClear"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Cancel" Style="{StaticResource GhostButton}" Click="OnCancel"/>
+            <Button Content="Apply" Style="{StaticResource AccentButton}" Click="OnApply"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

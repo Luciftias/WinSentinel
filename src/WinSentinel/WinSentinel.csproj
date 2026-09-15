@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <AssemblyName>WinSentinel</AssemblyName>
+    <RootNamespace>WinSentinel</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>WinSentinel</Authors>
+    <Product>WinSentinel</Product>
+    <Description>Floating Windows 10/11 system monitor and optimizer (CPU/RAM, processes, startup).</Description>
+    <LangVersion>latest</LangVersion>
+    <Platforms>AnyCPU;x64</Platforms>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!--
+    Both WPF and WinForms are enabled (WinForms only for the NotifyIcon tray support).
+    The WinForms implicit usings are removed globally so that System.Windows types
+    (MessageBox, Application, Point, CheckBox, ...) are never ambiguous with their
+    System.Windows.Forms / System.Drawing counterparts. The single file that needs
+    WinForms (Helpers/TrayIconManager.cs) imports those namespaces explicitly.
+  -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The .ico files are already picked up by the SDK's default None glob, so we use
+      Update (not Include) to add CopyToOutputDirectory metadata without creating a
+      duplicate item (avoids NETSDK1022). tray.ico is loaded at runtime by the tray
+      manager; app.ico is also embedded as the exe icon via <ApplicationIcon>.
+    -->
+    <None Update="Assets\app.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\tray.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+
+    <!-- Promote logo.png from the default None glob to a WPF Resource so it can be
+         shown inside the app via the pack URI /WinSentinel;component/Assets/logo.png. -->
+    <None Remove="Assets\logo.png" />
+    <Resource Include="Assets\logo.png" />
+  </ItemGroup>
+
+</Project>
